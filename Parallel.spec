@@ -77,10 +77,7 @@ excludes = [
     "PySide6.QtSensors",
     "PySide6.QtSpatialAudio",
     "PySide6.QtTextToSpeech",
-    "PySide6.QtWebChannel",
-    "PySide6.QtWebEngineCore",
     "PySide6.QtWebEngineQuick",
-    "PySide6.QtWebEngineWidgets",
     "PySide6.QtWebSockets",
     "PySide6.QtWebView",
 ]

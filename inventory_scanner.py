@@ -43,6 +43,7 @@ class InventoryScanResult:
     frame_captured_at: float   # time.time()
     failed_cells: int          # cells where OCR found nothing useful
     failed_positions: list[tuple[int, int]] | None = None  # (col, row), zero-based
+    merged_cells: int = 0      # cells that held an item already read from another cell
 
 
 # ──────────────────────────────────────────────
@@ -362,7 +363,69 @@ def _quantity_digit_crop(badge_image: np.ndarray) -> np.ndarray:
     digit_x1 = min(w, max(0, int(round(w * (34 / 92)))))
     digit_x2 = min(w, max(digit_x1 + 1, int(round(w * (82 / 92)))))
     digit_y2 = min(h, max(1, int(round(h * (40 / 44)))))
-    return badge_image[0:digit_y2, digit_x1:digit_x2]
+    after_circle = _crop_after_check_circle(badge_image[0:digit_y2])
+    if after_circle is not None:
+        return after_circle
+    crop = badge_image[0:digit_y2, digit_x1:digit_x2]
+    return _trim_to_gold_digits(crop)
+
+
+def _gold_columns(image: np.ndarray) -> np.ndarray:
+    blue = image[:, :, 0].astype(np.int16)
+    red = image[:, :, 2].astype(np.int16)
+    gold = (red > 120) & ((red - blue) > 45)
+    return np.flatnonzero(gold.sum(axis=0) >= 2)
+
+
+def _crop_after_check_circle(badge: np.ndarray) -> np.ndarray | None:
+    """Crop from the end of the gold check circle to the last gold digit, or None if unclear."""
+    if badge.ndim != 3 or badge.shape[2] < 3 or badge.shape[1] < 20:
+        return None
+    width = badge.shape[1]
+    columns = _gold_columns(badge)
+    if columns.size == 0:
+        return None
+    split_gap = max(3, int(round(width * 0.038)))
+    clusters: list[list[int]] = [[int(columns[0]), int(columns[0])]]
+    for column in columns[1:]:
+        column = int(column)
+        if column - clusters[-1][1] > split_gap:
+            clusters.append([column, column])
+        else:
+            clusters[-1][1] = column
+    # The first cluster is the circle (a continuous ring); digits come after it.
+    if len(clusters) < 2 or clusters[0][0] > width * 0.25:
+        return None
+    digit_gap = max(split_gap + 1, int(round(width * 0.10)))
+    start = clusters[1][0]
+    end = clusters[1][1]
+    for left, right in clusters[2:]:
+        if left - end > digit_gap:
+            break
+        end = right
+    margin = max(2, int(round(width * 0.05)))
+    return badge[:, max(0, start - margin): min(width, end + 1 + margin)]
+
+
+def _trim_to_gold_digits(crop: np.ndarray) -> np.ndarray:
+    """Cut the crop after the last gold digit so card-art lines are not read as digits."""
+    if crop.ndim != 3 or crop.shape[2] < 3 or crop.shape[1] < 4:
+        return crop
+    blue = crop[:, :, 0].astype(np.int16)
+    red = crop[:, :, 2].astype(np.int16)
+    gold = (red > 120) & ((red - blue) > 45)
+    columns = np.flatnonzero(gold.sum(axis=0) >= 2)
+    if columns.size == 0:
+        return crop
+    # Follow the digits from the left; a wider gap than one digit's spacing ends the number.
+    max_gap = max(3, int(round(crop.shape[1] * 0.18)))
+    end = int(columns[0])
+    for column in columns[1:]:
+        if int(column) - end > max_gap:
+            break
+        end = int(column)
+    margin = max(2, int(round(crop.shape[1] * 0.06)))
+    return crop[:, : min(crop.shape[1], end + 1 + margin)]
 
 
 # ──────────────────────────────────────────────
@@ -701,6 +764,25 @@ class InventoryScanner:
         print(f"[Scanner] Frame loaded from image ({frame.shape[1]}x{frame.shape[0]})")
         return self._scan_frame(frame, t_start, t_capture)
 
+    @staticmethod
+    def _save_large_quantity_badges(badge_cells, qty_map, threshold: int = 10):
+        """Keep the badge image behind any count of 10+ so a misread digit can be checked."""
+        large = {pos: qty for pos, qty in qty_map.items() if qty >= threshold}
+        if not large:
+            return
+        try:
+            folder = config.USER_DATA_DIR / "debug_badges"
+            folder.mkdir(parents=True, exist_ok=True)
+            for pos, image in badge_cells:
+                if pos in large:
+                    name = f"badge_col{pos[0] + 1}_row{pos[1] + 1}_read{large[pos]}.png"
+                    cv2.imwrite(str(folder / name), image)
+                    print(f"[Scanner] Large count {large[pos]} at {pos}; saved {name}")
+            for old in sorted(folder.glob("*.png"), key=lambda p: p.stat().st_mtime)[:-30]:
+                old.unlink(missing_ok=True)
+        except OSError as e:
+            print(f"[Scanner] Could not save badge image: {e}")
+
     def _scan_frame(
         self,
         frame: np.ndarray,
@@ -714,6 +796,7 @@ class InventoryScanner:
 
         # Build badge lookup: (col, row) -> quantity
         qty_map = parse_quantities_from_badges(badge_cells, self._ocr)
+        self._save_large_quantity_badges(badge_cells, qty_map)
 
         # ── 3. OCR each label cell ─────────────
         items: list[InventoryItem] = []
@@ -905,12 +988,14 @@ class InventoryScanner:
         # Deduplicate (same item appearing in multiple cells — shouldn't happen but just in case)
         seen: set[str] = set()
         deduped: list[InventoryItem] = []
+        merged = 0
         for item in items:
             if item.url_name not in seen:
                 seen.add(item.url_name)
                 deduped.append(item)
             else:
                 # Merge quantity into existing entry
+                merged += 1
                 for existing in deduped:
                     if existing.url_name == item.url_name:
                         existing.quantity += item.quantity
@@ -926,6 +1011,7 @@ class InventoryScanner:
             scan_duration_seconds=duration,
             frame_captured_at=t_capture,
             failed_cells=failed,
+            merged_cells=merged,
             failed_positions=[
                 positions[index]
                 for index, result in enumerate(futures)

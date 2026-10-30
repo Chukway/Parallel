@@ -98,6 +98,7 @@
 !/items_cache.json
 !/main.py
 !/name_aliases.py
+!/name_prompt.py
 !/pillar1_capture.py
 !/pillar2_ocr.py
 !/pillar3_api.py
@@ -227,9 +228,11 @@
 !/tests/test_arcane_catalog.py
 !/tests/test_backup_manager.py
 !/tests/test_dependency_baseline.py
+!/tests/test_inventory_badge_crop.py
 !/tests/test_market_pricing.py
 !/tests/test_mastery_list.py
 !/tests/test_name_aliases.py
+!/tests/test_name_prompt.py
 !/tests/test_network_privacy.py
 !/tests/test_ocr_pack_validation.py
 !/tests/test_ocr_subprocesses.py
@@ -250,6 +253,7 @@
 !/tests/test_updates.py
 !/themes.py
 !/token_capture.py
+!/tools/Parallel.iss
 !/tools/README.md
 !/tools/audit_personal_data.py
 !/tools/bundle_release_materials.py

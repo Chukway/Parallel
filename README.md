@@ -1,8 +1,79 @@
 # Parallel
 
-Parallel is a Warframe trading companion (inventory scanning, reward price overlay, warframe.market listings, set and mastery tracking, arcane listing). It is a modified fork of [Sidro](https://github.com/Hitakumori/Sidro) by Hitakumori, used under the MIT License. See [NOTICE.md](NOTICE.md) and [LICENSE](LICENSE). Not affiliated with Digital Extremes or warframe.market.
+Parallel is a Warframe trading companion for Windows. It reads your screen to scan your inventory,
+shows prices over Void Fissure rewards, helps you list items on warframe.market, and tracks sets,
+mastery and arcanes. It never changes your listings by itself: every listing, update or delete is
+shown to you first and only happens when you confirm it.
 
-The sections below are the original Sidro documentation and may still mention the old name.
+Parallel is a modified fork of [Sidro](https://github.com/Hitakumori/Sidro) by Hitakumori, used under
+the MIT License. See [NOTICE.md](NOTICE.md) and [LICENSE](LICENSE). It is not affiliated with Digital
+Extremes or warframe.market.
+
+## How to install
+
+1. Open the [latest release](https://github.com/Chukway/Parallel/releases/latest) and download
+   **Parallel-Setup.exe**.
+2. Run it. Windows may show a blue **"Windows protected your PC"** screen because the installer is not
+   code-signed (signing certificates cost money and this is a free hobby project). Click
+   **More info**, then **Run anyway**. You can check the source code in this repository.
+3. Follow the installer. It installs for your Windows account only and does not need administrator
+   rights. A desktop shortcut is optional.
+4. Start **Parallel**. A short tour explains each part and can be skipped.
+5. Click **Login / Token**, then **Get token automatically**, and sign in to warframe.market in the
+   window that opens. Parallel picks up the token for you and the window closes by itself. Your
+   password is never seen or saved, and nothing from that sign-in window is kept on disk.
+6. Parallel asks for your exact Warframe in-game name. It uses the name to recognise your own trades.
+   You can change it any time under **Settings**, then the **Account** tab.
+
+Tips for good scans: keep Windows **HDR turned off** while scanning, and run Warframe in a window
+or borderless mode so the screen can be captured.
+
+To remove Parallel, use **Settings, Apps** in Windows. Your items and settings are kept in
+`%LOCALAPPDATA%\Parallel` and stay after uninstalling; delete that folder yourself if you want
+them gone.
+
+## Hotkeys
+
+These are the defaults and can be changed in **Settings**, then **Hotkeys**.
+
+| Hotkey | What it does |
+|---|---|
+| Ctrl+Shift+I | Scan the visible 6x3 grid on Warframe's inventory sell screen |
+| Ctrl+Shift+B | Scan the final visible row after scrolling to the bottom |
+| Ctrl+Shift+R | Show prices over the Void Fissure reward screen |
+| Ctrl+Shift+T | Trade monitor: removes sold items from your listings after a trade completes |
+| Ctrl+Shift+S | Look up a single item you select on screen |
+| Ctrl+Shift+M | Open the local inventory and listing manager |
+| Ctrl+Shift+O | Load or unload the screen-reading (OCR) engines |
+| Ctrl+Shift+Q | Quit |
+
+A small notification with a moving bar appears when a scan starts, so you know the hotkey worked.
+
+## Your data and backups
+
+- Everything personal stays on your computer in `%LOCALAPPDATA%\Parallel`: your token, settings,
+  items and sales log. Do not upload that folder anywhere.
+- **Settings, Account** has **Back up everything** and **Restore everything from backup** for your
+  items, sales, mastery list and arcane list. A backup leaves your token out unless you choose to
+  include it. Parallel also makes an automatic backup about once a day and keeps the latest ten.
+- Treat your token like a password. If you share a backup file, do not include the token.
+
+## Notes
+
+- Arcanes are priced and listed as single, unranked copies. List fully ranked ones by hand on
+  warframe.market.
+- Parallel only captures the screen and talks to warframe.market over normal HTTPS. It does not
+  inject into Warframe or read game memory.
+
+## Building from source
+
+See [build_parallel.md](build_parallel.md) for the PyInstaller build and `tools/Parallel.iss` for the
+Inno Setup installer. [PUBLISHING.md](PUBLISHING.md) lists the checks that run before a commit.
+
+---
+
+The sections below are the original Sidro documentation. They are kept for reference and may still
+mention the old name and folders.
 
 ---
 # Sidro 1.0

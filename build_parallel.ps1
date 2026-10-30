@@ -8,6 +8,7 @@ foreach ($d in "build", "dist") {
     $p = Join-Path $PSScriptRoot $d
     if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force }
 }
+$ErrorActionPreference = "Continue"   # PyInstaller writes progress to stderr, which is not an error
 & $py -m PyInstaller Parallel.spec --noconfirm --clean
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed ($LASTEXITCODE)" }
 Write-Host "Built: $PSScriptRoot\dist\Parallel\Parallel.exe"

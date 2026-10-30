@@ -64,6 +64,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QSlider,
     QScrollArea,
@@ -83,6 +84,7 @@ from PySide6.QtWidgets import (
 )
 
 import config
+import name_prompt
 import tutorial
 from account_store import AccountStore, StoredListing
 from themes import ACCENTS, DEFAULT_ACCENT, DEFAULT_THEME, THEMES, accent_swatch, build_palette, is_light
@@ -960,7 +962,7 @@ class Toast(QFrame):
         "info": C_BLUE,
     }
 
-    def __init__(self, message: str, status: str, duration_ms: int):
+    def __init__(self, message: str, status: str, duration_ms: int, busy: bool = False):
         flags = Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         try:
             flags |= Qt.WindowTransparentForInput
@@ -1024,8 +1026,27 @@ class Toast(QFrame):
         label = QLabel(message)
         label.setWordWrap(True)
         label.setFixedWidth(330)
+        self.label = label
         panel_layout.addWidget(bar)
-        panel_layout.addWidget(label)
+        if busy:
+            # Moving bar under the text: the hotkey worked and Parallel is still reading.
+            column = QVBoxLayout()
+            column.setContentsMargins(0, 10, 0, 12)
+            column.setSpacing(6)
+            column.addWidget(label, 1)
+            progress = QProgressBar()
+            progress.setRange(0, 0)
+            progress.setTextVisible(False)
+            progress.setFixedHeight(4)
+            progress.setFixedWidth(330)
+            progress.setStyleSheet(
+                f"QProgressBar {{ background: transparent; border: none; }}"
+                f"QProgressBar::chunk {{ background: {self.COLORS.get(status, C_BLUE)}; border-radius: 2px; }}"
+            )
+            column.addWidget(progress)
+            panel_layout.addLayout(column)
+        else:
+            panel_layout.addWidget(label)
 
         corner = str(getattr(config, "NOTIFICATION_CORNER", "top_left"))
         if mascot_label is not None and "right" not in corner:
@@ -1038,6 +1059,9 @@ class Toast(QFrame):
         height = max(76, mascot_height)
         self.resize(width, height)
         QTimer.singleShot(duration_ms, self.close)
+
+    def set_message(self, message: str):
+        self.label.setText(message)
 
     def place(self, index: int):
         screen = QApplication.primaryScreen().availableGeometry()
@@ -1756,18 +1780,19 @@ class InventoryReviewDialog(QDialog):
             note.setObjectName("Muted")
             note.setWordWrap(True)
             ducat_layout.addWidget(note)
-            table = QTableWidget(0, 5)
-            table.setHorizontalHeaderLabels(["Item", "Ducats", "Lowest", "Bulk value", "Reason"])
+            table = QTableWidget(0, 6)
+            table.setHorizontalHeaderLabels(["Item", "Qty", "Ducats", "Lowest", "Bulk value", "Reason"])
             table.setAlternatingRowColors(True)
-            _prepare_table(table, [320, 80, 80, 100, 260])
+            _prepare_table(table, [320, 60, 80, 80, 100, 260])
             for item in self.saved_ducat_items:
                 row = table.rowCount()
                 table.insertRow(row)
                 table.setItem(row, 0, _table_item(str(item.get("display_name", ""))))
-                table.setItem(row, 1, _table_item(f"{item.get('ducats', '?')}d"))
-                table.setItem(row, 2, _table_item(f"{item.get('lowest', '?')}p"))
-                table.setItem(row, 3, _table_item(f"{item.get('bulk_value', '?')}p"))
-                table.setItem(row, 4, _table_item(str(item.get("reason", ""))))
+                table.setItem(row, 1, _table_item(str(item.get("quantity", "?"))))
+                table.setItem(row, 2, _table_item(f"{item.get('ducats', '?')}d"))
+                table.setItem(row, 3, _table_item(f"{item.get('lowest', '?')}p"))
+                table.setItem(row, 4, _table_item(f"{item.get('bulk_value', '?')}p"))
+                table.setItem(row, 5, _table_item(str(item.get("reason", ""))))
             ducat_layout.addWidget(table, 1)
             self.tabs.addTab(ducat_page, f"Saved for Ducats ({len(self.saved_ducat_items)})")
 
@@ -4387,7 +4412,7 @@ class ArcanesPage(QWidget):
         self.summary.setMinimumHeight(32)
         add_bar.addWidget(self.summary, 1)
         self.name_input = QLineEdit()
-        self.name_input.setPlaceholderText("Arcane name, e.g. Arcane Energize (counted at max rank)")
+        self.name_input.setPlaceholderText("Arcane name, e.g. Arcane Energize")
         self.name_input.setAccessibleName("Arcane to add")
         self.name_input.setClearButtonEnabled(True)
         self.name_input.setMinimumWidth(260)
@@ -4411,6 +4436,7 @@ class ArcanesPage(QWidget):
         )
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         _prepare_table(self.table, [42, 280, 90, 90, 90, 120, 150, 120], stretch_column=1)
+        self.table.setColumnHidden(2, True)   # rank is tracked internally; the page only shows counts
         layout.addWidget(self.table, 1)
 
         footer_frame = QFrame()
@@ -4421,7 +4447,7 @@ class ArcanesPage(QWidget):
         self.remove_button = _button("Remove from stock", C_BG3, C_TEXT)
         self.remove_button.clicked.connect(self._remove_ticked)
         self.check_button = _button("Check market", C_BLUE, "white")
-        self.check_button.setToolTip("Looks up rank-specific prices from in-game sellers and your current listings")
+        self.check_button.setToolTip("Looks up prices from in-game sellers and your current listings")
         self.check_button.clicked.connect(self.check_market)
         self.mode = QComboBox()
         self.mode.addItems(self.MODES)
@@ -4542,13 +4568,13 @@ class ArcanesPage(QWidget):
         return partial[0] if len(partial) == 1 else None
 
     def _add_stock(self):
-        """Arcanes are combined to max rank before selling, so stock is a plain count at max rank."""
+        """Arcanes are priced and listed as single, unranked copies. Max-rank ones are listed by hand."""
         slug = self._resolve(self.name_input.text())
         if slug is None:
             self._notify("Pick an arcane from the suggestions (name not found or not unique).", "warning")
             return
         info = self.catalog.info(slug)
-        self.stock.add(slug, info.max_rank if info else 0, self.qty_input.value())
+        self.stock.add(slug, 0, self.qty_input.value())
         self.name_input.clear()
         self.reload()
 
@@ -4588,7 +4614,7 @@ class ArcanesPage(QWidget):
             return
         self._busy = True
         self.check_button.setEnabled(False)
-        self.summary.setText("Checking rank-specific prices...")
+        self.summary.setText("Checking prices...")
 
         def worker():
             prices: dict[str, object] = {}
@@ -4639,7 +4665,7 @@ class ArcanesPage(QWidget):
         for stock_row, info, price in plan:
             existing = self.listings.get(ranked_key(stock_row.slug, stock_row.rank))
             verb = "Update" if existing is not None else "Create"
-            lines.append(f"{verb}: {stock_row.quantity}x {info.name if info else stock_row.slug} (rank {stock_row.rank}) @ {price}p")
+            lines.append(f"{verb}: {stock_row.quantity}x {info.name if info else stock_row.slug} @ {price}p")
         if QMessageBox.question(
             self, "List arcanes on warframe.market",
             "This will change your live market listings:\n\n" + "\n".join(lines) + "\n\nContinue?",
@@ -4696,7 +4722,7 @@ class ArcanesPage(QWidget):
             listing = self.listings.get(ranked_key(stock_row.slug, stock_row.rank))
             if listing is not None:
                 info = self.catalog.info(stock_row.slug)
-                targets.append((listing, f"{info.name if info else stock_row.slug} (rank {stock_row.rank})"))
+                targets.append((listing, f"{info.name if info else stock_row.slug}"))
         if not targets or self._busy:
             self._notify("None of the ticked entries has a listing (run Check market first)." if not targets
                          else "Still working on the previous request.", "warning")
@@ -4813,7 +4839,9 @@ class Dashboard(QMainWindow):
         self.refresh_rows()
         QTimer.singleShot(300, self.preview_prices)
         if getattr(config, "FIRST_LAUNCH", False):
-            QTimer.singleShot(700, self._first_launch)
+            QTimer.singleShot(700, self._first_launch)   # asks for the name when the tour is closed
+        else:
+            QTimer.singleShot(1200, self._ask_for_name)
 
     def _build(self):
         central = QWidget()
@@ -5126,6 +5154,15 @@ class Dashboard(QMainWindow):
     def _first_launch(self):
         config.FIRST_LAUNCH = False
         tutorial.show_tutorial_if_needed(self)
+        self._ask_for_name()
+
+    def _ask_for_name(self):
+        def save_name(name: str):
+            config.WFM_INGAME_NAME = name
+            _save_ui_settings()
+            self._notify(f"Saved your Warframe name: {name}. Change it in Settings, Account.", "success")
+
+        name_prompt.ask_for_name_if_needed(self, save_name)
 
     def _side_text(self, text: str) -> QLabel:
         label = QLabel(text)
@@ -6006,6 +6043,30 @@ class UIController:
     def alert(self, message: str, status: str = "info", duration_ms: int = 5000, sound: str = "info"):
         self.toast(message, status, duration_ms)
         play_alert(sound)
+
+    def busy_start(self, message: str, max_ms: int = 120000):
+        """Show a notification with a moving bar until busy_end(); returns a handle or None."""
+        if not getattr(config, "VISUAL_NOTIFICATIONS_ENABLED", True):
+            return None
+
+        def _show():
+            toast = Toast(message, "info", max_ms, busy=True)
+            self.toasts = [item for item in self.toasts if item.isVisible()]
+            self.toasts.append(toast)
+            toast.destroyed.connect(lambda _obj=None, t=toast: self._remove_toast(t))
+            self._place_toasts()
+            toast.show()
+            return toast
+
+        return self.invoke(_show, wait=True)
+
+    def busy_update(self, handle, message: str):
+        if handle is not None:
+            self.invoke(lambda: handle.set_message(message))
+
+    def busy_end(self, handle):
+        if handle is not None:
+            self.invoke(handle.close)
 
     def _remove_toast(self, toast: Toast):
         self.toasts = [item for item in self.toasts if item is not toast and item.isVisible()]

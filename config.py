@@ -113,6 +113,10 @@ def _seed_user_data_file(filename: str) -> Path:
         try:
             if source.resolve() != destination.resolve():
                 shutil.copyfile(source, destination)
+                # The bundled copy is only a fallback for the first launch. Mark it old
+                # so the app downloads the current market lists instead of trusting it
+                # for a day (a stale list is why brand-new Prime parts were not read).
+                os.utime(destination, (0, 0))
         except OSError:
             pass
     return destination
@@ -336,8 +340,7 @@ WINDOWS_OCR_SAVE_DEBUG_SHEET = True # Save debug_windows_ocr_inventory.png after
 # ─────────────────────────────────────────────
 FUZZY_MATCH_THRESHOLD = 72       # 0–100; raise if too many false positives
 FUZZY_TOP_N_CANDIDATES = 5       # Show top N matches in UI for user selection
-INVENTORY_MATCH_PRIME_ONLY = True # Inventory/Sell Prime Parts tab should not match non-prime parts
-PRIME_FAMILY_FUZZY_THRESHOLD = 72 # Recover partial family reads like "Bta on" -> Braton
+INVENTORY_MATCH_PRIME_ONLY = True # Inventory/Sell Prime Parts tab should not match non-prime partsPRIME_FAMILY_FUZZY_THRESHOLD = 72 # Recover partial family reads like "Bta on" -> Braton
 PRIME_BROAD_FALLBACK_MIN_SCORE = 98 # Only accept familyless all-prime fallback when nearly exact
 PRIME_BROAD_FALLBACK_MIN_GAP = 3    # Top match must beat runner-up by this many points
 

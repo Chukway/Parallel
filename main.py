@@ -32,6 +32,38 @@ from reward_scanner import RewardScanner
 from reward_frame_buffer import RewardFrameBuffer
 
 
+class _Busy:
+    """Moving-bar notification that shows a hotkey was received and is still working."""
+
+    def __init__(self, ui, message: str):
+        self._ui = ui
+        self._handle = None
+        try:
+            self._handle = ui.busy_start(message)
+        except Exception as e:
+            print(f"[Main] Could not show progress notification: {e}")
+
+    def update(self, message: str):
+        try:
+            self._ui.busy_update(self._handle, message)
+        except Exception:
+            pass
+
+    def close(self):
+        handle, self._handle = self._handle, None
+        try:
+            self._ui.busy_end(handle)
+        except Exception:
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
+
+
 class App:
 
     def __init__(self):
@@ -255,6 +287,7 @@ class App:
                 queued = len(self._inventory_pending)
             self.ui.toast(f"Inventory scan ({scan_mode}) queued ({queued}).", "info", 3500)
             return
+        busy = _Busy(self.ui, "Inventory scan started...")
         try:
             scan_label = "bottom 6" if scan_mode == "bottom_6" else "6x3"
             inventory_scanner = (
@@ -263,6 +296,7 @@ class App:
                 else self._get_inventory_scanner()
             )
 
+            busy.update(f"Inventory scan ({scan_label}) started. Reading your screen...")
             try:
                 scan_result = inventory_scanner.scan()
                 if self._ocr_reset_pending.is_set():
@@ -271,6 +305,7 @@ class App:
             except RuntimeError as e:
                 self.ui.toast(f"❌ {e}", "error")
                 return
+            busy.update(f"Read {len(scan_result.items)} item(s). Looking up prices...")
 
             if not scan_result.items:
                 if scan_mode == "bottom_6":
@@ -287,12 +322,25 @@ class App:
                 return
 
             self.account_store.upsert_inventory_items(scan_result.items)
+            report = f"Inventory captured ({scan_label}): {len(scan_result.items)} item(s)."
+            merged = int(getattr(scan_result, "merged_cells", 0) or 0)
+            if merged:
+                report += f" {merged} slot(s) held an item already counted, so their amounts were added together."
+            unreadable = [
+                f"row {row + 1}, column {col + 1}"
+                for col, row in (scan_result.failed_positions or [])
+            ]
+            if unreadable and len(unreadable) <= 3:
+                report += f" Could not read: {'; '.join(unreadable)}."
+            elif unreadable:
+                report += f" Could not read {len(unreadable)} slots."
             self.ui.alert(
-                f"Inventory captured ({scan_label}): {len(scan_result.items)} item(s).",
-                "success",
-                3500,
+                report,
+                "warning" if unreadable else "success",
+                7000 if (merged or unreadable) else 3500,
                 "info",
             )
+            print(f"[Main] {report}")
             print(f"[Main] Fetching prices for {len(scan_result.items)} detected item(s)...")
             price_map: dict[str, PriceInfo] = {}
             failed_prices: list[str] = []
@@ -372,6 +420,7 @@ class App:
                     existing_listing_map = {}
 
             print(f"[Main] Opening inventory review for {len(listable)} listable item(s)...")
+            busy.close()
             confirmed_items = self._show_inventory_review(
                 listable,
                 price_map,
@@ -384,6 +433,7 @@ class App:
             return self._post_confirmed_inventory_items(confirmed_items, price_map)
 
         finally:
+            busy.close()
             self._inventory_lock.release()
             with self._inventory_pending_lock:
                 next_scan_mode = self._inventory_pending.pop(0) if self._inventory_pending else None
@@ -631,7 +681,8 @@ class App:
             known_trade_items = self._trade_match_candidates()
 
             try:
-                trade = trade_scanner.scan_current_trade(known_items=known_trade_items)
+                with _Busy(self.ui, "Trade monitor started. Reading the trade window..."):
+                    trade = trade_scanner.scan_current_trade(known_items=known_trade_items)
                 self._log_ocr_memory("after trade scan")
             except RuntimeError as e:
                 self.ui.toast(f"❌ {e}", "error")
@@ -855,15 +906,17 @@ class App:
             self.ui.toast("❌ Not authenticated.", "error")
             return
         try:
-            result = self._get_reward_scanner().scan()
-            if self._ocr_reset_pending.is_set():
-                return
-            self._log_ocr_memory("after reward scan")
-            if not result.items:
-                self.ui.toast("No reward items detected.", "warning", 4000)
-                return
+            with _Busy(self.ui, "Reward scan started. Reading the reward screen...") as busy:
+                result = self._get_reward_scanner().scan()
+                if self._ocr_reset_pending.is_set():
+                    return
+                self._log_ocr_memory("after reward scan")
+                if not result.items:
+                    self.ui.toast("No reward items detected.", "warning", 4000)
+                    return
 
-            rows = self._reward_rows_with_prices(result.items)
+                busy.update("Looking up reward prices...")
+                rows = self._reward_rows_with_prices(result.items)
 
             self.ui.show_reward_prices(rows)
             self.ui.toast(f"Reward prices shown for {len(rows)} item(s).", "success", 3500)

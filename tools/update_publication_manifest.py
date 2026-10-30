@@ -25,7 +25,7 @@ import verify_public_source as guard  # noqa: E402
 
 ROOT = guard.ROOT
 AUTO_DIRS = ("", "tests", "tools")
-AUTO_SUFFIXES = {".py", ".md", ".ps1", ".bat", ".txt", ".toml", ".spec", ".ico", ".png", ".lock", ".json"}
+AUTO_SUFFIXES = {".py", ".md", ".ps1", ".bat", ".txt", ".toml", ".spec", ".iss", ".ico", ".png", ".lock", ".json"}
 # Internal reports, scratch notes, captures and logs never go public.
 EXCLUDE = re.compile(
     r"(^|/)(REPORT_[^/]*|[^/]*_notes\.md|build_[^/]*\.md|debug_[^/]*|test_capture[^/]*|[^/]*\.log|"

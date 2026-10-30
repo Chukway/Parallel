@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import importlib.util
 import re
+import shutil
 import threading
 from pathlib import Path
 from typing import Callable, Iterable
@@ -143,7 +144,8 @@ def load_webengine():
     try:
         from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
         from PySide6.QtWebEngineWidgets import QWebEngineView
-    except Exception:
+    except Exception as exc:
+        print(f"[TokenCapture] Qt WebEngine could not be loaded: {exc!r}")
         return None
     return QWebEngineView, QWebEngineProfile, QWebEnginePage
 
@@ -182,13 +184,11 @@ def TokenCaptureDialog(parent=None, on_success: Callable[[], None] | None = None
                 "Your password is never seen or saved by Parallel.")
             self._status.setWordWrap(True)
             lay.addWidget(self._status)
-            pdir = Path(profile_dir or default_profile_dir())
-            pdir.mkdir(parents=True, exist_ok=True)
-            self._profile = QWebEngineProfile("parallel-wfm-signin", self)
-            self._profile.setPersistentStoragePath(str(pdir))
-            self._profile.setCachePath(str(pdir / "cache"))
-            self._profile.setPersistentCookiesPolicy(
-                QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies)
+            # A profile without a name is off the record: the sign-in session lives in memory
+            # only, so no logged-in browser session is left on disk once the window closes.
+            # Older versions stored one in "webprofile"; remove that leftover.
+            shutil.rmtree(Path(profile_dir or default_profile_dir()), ignore_errors=True)
+            self._profile = QWebEngineProfile(self)
             self._page = QWebEnginePage(self._profile, self)
             self._view = QWebEngineView(self)
             self._view.setPage(self._page)
@@ -196,15 +196,47 @@ def TokenCaptureDialog(parent=None, on_success: Callable[[], None] | None = None
             self._result.connect(self._on_result)
             store = self._profile.cookieStore()
             store.cookieAdded.connect(self._cookie_seen)
-            self._view.loadFinished.connect(lambda *_: self._profile.cookieStore().loadAllCookies())
+            self._view.loadFinished.connect(self._page_loaded)
+            self._seen_names: set[str] = set()
             self._view.load(SIGNIN_URL)
+
+        def _page_loaded(self, ok: bool):
+            self._profile.cookieStore().loadAllCookies()
+            url = self._view.url()
+            host = url.host()
+            print(f"[TokenCapture] page loaded ok={ok} host={host} path={url.path()} "
+                  f"cookie names seen={sorted(self._seen_names)}")
+            if self._done or self._busy or not domain_matches(host):
+                return
+            # Fallback: some sites keep the token in page storage instead of a cookie.
+            script = ("(function(){var f=function(s){for(var i=0;i<s.length;i++){var v=s.getItem(s.key(i));"
+                      "if(v&&/eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+/.test(v))return v;}return '';};"
+                      "try{return f(localStorage)||f(sessionStorage);}catch(e){return '';}})()")
+            self._page.runJavaScript(script, self._storage_result)
+
+        def _storage_result(self, value):
+            token = find_jwt(value if isinstance(value, str) else "")
+            if token:
+                print("[TokenCapture] token found in page storage")
+                self._accept_token(token)
 
         def _cookie_seen(self, cookie):
             # Only the warframe.market JWT cookie is ever looked at.
             if self._done or self._busy:
                 return
+            try:
+                if domain_matches(_as_str(cookie.domain())):
+                    self._seen_names.add(_as_str(cookie.name()))   # names only, never values
+            except Exception:
+                pass
             token = pick_jwt_cookie([cookie])
             if not token:
+                return
+            print("[TokenCapture] JWT cookie found")
+            self._accept_token(token)
+
+        def _accept_token(self, token: str):
+            if self._done or self._busy:
                 return
             self._busy = True
             self._status.setText("Checking your sign-in...")
@@ -217,6 +249,10 @@ def TokenCaptureDialog(parent=None, on_success: Callable[[], None] | None = None
 
         def _on_result(self, ok: bool, msg: str):
             self._busy = False
+            print(f"[TokenCapture] result ok={ok}: {msg}")
+            if not ok and "rejected" in msg:
+                # The site sets a guest cookie before sign-in; keep waiting for the real one.
+                msg = "Sign in below. The window closes by itself when you are done."
             self._status.setText(msg)
             if ok:
                 self._done = True

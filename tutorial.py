@@ -92,10 +92,11 @@ def build_steps() -> list[Step]:
         Step(
             "Arcanes",
             "Left navigation rail: Arcanes",
-            "<p>Add an arcane and how many you have. Counts are treated as <b>max rank</b>, so "
-            "combine them in game first.</p>"
-            "<p><b>Check market</b> looks up max-rank prices from players who are in game. Then "
-            "<b>List / update ticked</b> posts or changes your listings, after a confirmation.</p>",
+            "<p>Add an arcane and how many copies you have. It is just a list of names and counts.</p>"
+            "<p><b>Check market</b> looks up the price of a single arcane from players who are in game. "
+            "Then <b>List / update ticked</b> posts or changes your listings, after a confirmation.</p>"
+            "<p>Parallel only lists single, unranked arcanes. To sell fully ranked ones, list them "
+            "by hand on warframe.market.</p>",
         ),
         Step(
             "Settings: where things are",
@@ -118,8 +119,9 @@ def build_steps() -> list[Step]:
             "<p>That is the whole tour. A good first run: connect your account, open Warframe's "
             "inventory, press the inventory hotkey, and review the results.</p>"
             "<p>Two tips for good scans: keep <b>HDR off</b> in Windows while scanning (it hurts "
-            "screen reading), and enter your exact Warframe name in <b>Settings</b>, "
-            "<b>Account</b> so the trade monitor can recognise your sales.</p>"
+            "screen reading), and give Parallel your exact Warframe name so the trade monitor can "
+            "recognise your sales. It asks for it at start-up; change it any time in "
+            "<b>Settings</b>, <b>Account</b>.</p>"
             "<p>Replay this tour any time from <b>Settings</b>, <b>Replay tutorial</b>.</p>",
         ),
     ]
