@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 
 import requests
 
-REPOSITORY = "Hitakumori/Sidro"
+REPOSITORY = "Chukway/Parallel"
 RELEASES_URL = f"https://github.com/{REPOSITORY}/releases"
 ASSET_NAME = "Sidro-windows.zip"
 MAX_DOWNLOAD = 1024 * 1024 * 1024

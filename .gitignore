@@ -285,6 +285,7 @@
 !/tools/make_release_zip.py
 !/tools/make_shortcut.ps1
 !/tools/make_windows_icon.py
+!/tools/parallel_version.txt
 !/tools/prepare_rapidocr_models.py
 !/tools/run_source.bat
 !/tools/run_source.ps1

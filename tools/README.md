@@ -1,4 +1,4 @@
-﻿# Development and release tools
+# Development and release tools
 
 These utilities support source development and packaging. Normal users run the
 downloaded `Sidro.exe`; the normal source entry point is `run_cpu.bat`.
@@ -17,6 +17,7 @@ downloaded `Sidro.exe`; the normal source entry point is `run_cpu.bat`.
 | [bundle_release_materials.py](bundle_release_materials.py) | Bundles license notices, dependency information and required upstream source archives. |
 | [make_release_zip.py](make_release_zip.py) | Validates the portable package and creates its ZIP/checksums. |
 | [sidro_version.txt](sidro_version.txt) | Windows version-resource metadata for `Sidro.exe`. |
+| [parallel_version.txt](parallel_version.txt) | Windows version-resource metadata for `Parallel.exe`. |
 | [updater_version.txt](updater_version.txt) | Windows version-resource metadata for `SidroUpdater.exe`. |
 | [verify_public_source.py](verify_public_source.py) | Checks reviewed paths/hashes, Git content/history and exports a clean source snapshot. |
 

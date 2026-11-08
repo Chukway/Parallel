@@ -1,4 +1,4 @@
-﻿# -*- mode: python ; coding: utf-8 -*-
+# -*- mode: python ; coding: utf-8 -*-
 # Parallel build recipe (derived from the upstream Sidro recipe, MIT). RapidOCR models are taken from the installed rapidocr package.
 
 from pathlib import Path
@@ -131,6 +131,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=str(icon_path) if icon_path.exists() else None,
+    version=str(ROOT / "tools" / "parallel_version.txt"),
 )
 
 coll = COLLECT(
