@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import verify_public_source as guard  # noqa: E402
 
 ROOT = guard.ROOT
-AUTO_DIRS = ("", "tests", "tools")
+AUTO_DIRS = ("", "tests", "tools", "docs/images")
 AUTO_SUFFIXES = {".py", ".md", ".ps1", ".bat", ".txt", ".toml", ".spec", ".iss", ".ico", ".png", ".lock", ".json"}
 # Internal reports, scratch notes, captures and logs never go public.
 EXCLUDE = re.compile(

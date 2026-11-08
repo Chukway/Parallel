@@ -6,7 +6,7 @@ original copyright notice and license text are kept in [LICENSE](LICENSE).
 
 ## What Parallel adds
 
-- My Items & Sets, Mastery List and Arcanes tabs (`set_catalog.py`, `arcane_catalog.py`).
+- Item List, Mastery List and Arcanes tabs (`set_catalog.py`, `arcane_catalog.py`).
 - Rank-aware pricing and listing for arcanes.
 - Extra selling presets (Most Common -2, Lowest -1p).
 - A new look with selectable themes and accent colours.

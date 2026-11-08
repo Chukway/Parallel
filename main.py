@@ -22,6 +22,10 @@ from auth_manager import (
     validate_wfm_token,
 )
 from account_store import AccountStore
+import trade_tools
+from reward_history import RewardHistory
+from concurrent.futures import ThreadPoolExecutor
+from set_catalog import SetCatalog
 from pillar2_ocr import OCRProcessor, FuzzyMatcher, ItemsCache, normalize_ocr_text
 from pillar3_api import ExistingListing, WarframeMarketAPI, WFMAuthError, WFMApiError, PriceInfo
 from qt_ui import UIController, UserDecision
@@ -73,7 +77,8 @@ class App:
         print(f"  Single scan   : {config.HOTKEY_SCAN}")
         print(f"  Inventory scan (6x3): {config.HOTKEY_INVENTORY_SCAN}")
         print(f"  Inventory scan (bottom 6): {config.HOTKEY_INVENTORY_BOTTOM_SCAN}")
-        print(f"  Trade monitor : {config.HOTKEY_TRADE_MONITOR}")
+        print(f"  Arcane scan   : {config.HOTKEY_ARCANE_SCAN}")
+        print(f"  Trade monitor :{config.HOTKEY_TRADE_MONITOR}")
         print(f"  Account UI    : {config.HOTKEY_ACCOUNT_UI}")
         print(f"  Reward prices : {config.HOTKEY_REWARD_SCAN}")
         print(f"  Quit          : {config.HOTKEY_QUIT}")
@@ -82,6 +87,7 @@ class App:
         self.ocr = None
         self.inventory_scanner = None
         self.inventory_bottom_scanner = None
+        self.arcane_scanner = None
         self.trade_scanner = None
         self.reward_scanner = None
         self.item_search_cache = None
@@ -446,6 +452,271 @@ class App:
     def scan_inventory_bottom(self):
         return self.scan_inventory("bottom_6")
 
+    # ── Arcane scan (ARCANES screen, or Inventory > Sell > ARCANES) ──
+
+    def _get_arcane_scanner(self, catalog):
+        if self.arcane_scanner is None:
+            from arcane_scanner import ArcaneScanner
+            self.arcane_scanner = ArcaneScanner(catalog, ocr_context="inventory_6x3")
+        self._schedule_ocr_button_refresh()
+        return self.arcane_scanner
+
+    def scan_arcanes(self):
+        """Read the visible arcanes and, after the user confirms, update the arcane stock.
+        On Warframe's ARCANES screen every copy is a tile, so tiles are grouped per
+        (arcane, rank) and each group raises the stock to max(stock, seen); rescanning
+        overlapping screens never double counts. On the Inventory > Sell > Arcanes tab
+        (no rank visible) the printed counts replace the unranked stock instead."""
+        if self._ocr_reset_pending.is_set():
+            return
+        if not self._inventory_lock.acquire(blocking=False):
+            self.ui.toast("Another inventory scan is running. Try again when it finishes.", "info", 3500)
+            return
+        busy = _Busy(self.ui, "Arcane scan started...")
+        try:
+            from arcane_catalog import ArcaneCatalog, ArcaneStock
+            from arcane_scanner import (
+                ArcaneMatcher, apply_arcane_changes, apply_arcane_rank_changes, build_arcane_changes,
+                build_arcane_rank_changes, format_arcane_changes, format_arcane_rank_changes,
+            )
+            from PySide6.QtWidgets import QMessageBox
+
+            page = getattr(getattr(self.ui, "dashboard", None), "arcanes_page", None)
+            catalog = page.catalog if page is not None else ArcaneCatalog()
+            if catalog.is_stale():
+                busy.update("Loading the arcane list...")
+                try:
+                    catalog.refresh()
+                except Exception as e:
+                    print(f"[Arcanes] Could not load the arcane list: {e}")
+            if not catalog.names():
+                self.ui.toast("Arcane list unavailable. Check your connection and try again.", "error")
+                return
+            scanner = self._get_arcane_scanner(catalog)
+            scanner.matcher = ArcaneMatcher(catalog)   # pick up a refreshed arcane list
+
+            busy.update("Arcane scan started. Reading your screen...")
+            try:
+                scan_result = scanner.scan()
+            except RuntimeError as e:
+                self.ui.toast(f"❌ {e}", "error")
+                return
+            if self._ocr_reset_pending.is_set():
+                return
+            if not scan_result.items:
+                self.ui.toast(
+                    "No arcanes detected. Open the ARCANES screen (or Inventory > Sell > Arcanes) with the cards visible, then retry.",
+                    "warning",
+                )
+                return
+
+            stock = page.stock if page is not None else ArcaneStock()
+            collection = getattr(scan_result, "layout", "sell") == "collection"
+            if collection:
+                changes = build_arcane_rank_changes(scan_result.tiles, stock)
+                text = format_arcane_rank_changes(changes, len(scan_result.failed_positions or []))
+            else:
+                changes = build_arcane_changes(scan_result.items, stock)
+                text = format_arcane_changes(changes, len(scan_result.failed_positions or []))
+            busy.close()
+            answer = self.ui.invoke(
+                lambda: QMessageBox.question(
+                    None, "Arcane scan", text, QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+                ),
+                wait=True,
+            )
+            if answer != QMessageBox.Yes:
+                self.ui.toast("Arcane scan discarded. Nothing was saved.", "info", 3500)
+                return
+            if collection:
+                applied = apply_arcane_rank_changes(stock, changes)
+            else:
+                applied = apply_arcane_changes(stock, changes)
+            if page is not None:
+                self.ui.invoke(page.reload)
+            self.ui.toast(f"Saved {applied} arcane count(s) to your stock.", "success", 4000)
+        finally:
+            busy.close()
+            self._inventory_lock.release()
+
+    def combine_set(self, set_slug: str):
+        """List one full set, and shrink the listings of its parts so the same items are not sold twice.
+
+        Steps: pick the set price in the normal review window, show what will change on
+        warframe.market, then post the set and lower or delete the part listings.
+        """
+        if self.api is None:
+            self.ui.toast("❌ Not authenticated. Sign in first (Login / Token).", "error")
+            return
+        if not self._inventory_lock.acquire(blocking=False):
+            self.ui.toast("An inventory scan or review is already running.", "info", 3500)
+            return
+        busy = _Busy(self.ui, "Looking up the set price and your listings...")
+        try:
+            if getattr(self, "_set_catalog", None) is None:
+                self._set_catalog = SetCatalog()
+            owned = {slug: item.quantity for slug, item in self.account_store.items.items() if item.quantity > 0}
+            status = self._set_catalog.status_for(set_slug, owned)
+            if status is None or not status.parts or status.buildable < 1:
+                missing = ", ".join(p.name for p in (status.missing_parts if status else [])[:4]) or "set data"
+                self.ui.toast(f"You can not combine this set yet. Missing: {missing}.", "warning", 6000)
+                return
+            self.api.ensure_item_id_manifest()
+            listing_map = self.api.get_existing_sell_listing_map()
+            price_info = self.api.get_price_info(set_slug)
+            set_item = InventoryItem(
+                display_name=status.set_name, url_name=set_slug, quantity=1, match_score=100,
+                raw_ocr=status.set_name, grid_position=(0, 0),
+            )
+            set_item._picked_by_user = True
+            set_id = self.api.get_item_id(set_slug)
+            if set_id:
+                set_item._item_id = set_id
+                existing_set = listing_map.get(set_id) or listing_map.get(set_slug)
+                if existing_set is not None:
+                    existing_set.item_url_name = set_slug
+                    listing_map[set_slug] = existing_set
+                    set_item.quantity = int(existing_set.quantity) + 1   # one more set on the same listing
+            busy.close()
+            confirmed = self._show_inventory_review(
+                [set_item], {set_slug: price_info}, listing_map, scan_title=f"Combine {status.set_name}",
+            )
+            if not confirmed:
+                return
+            changes = trade_tools.plan_set_combine(status.parts, lambda slug: listing_map.get(slug))
+            lines = []
+            for part, listing, new_quantity in changes:
+                if new_quantity <= 0:
+                    lines.append(f"• {part.name}: listing deleted ({listing.quantity} listed)")
+                else:
+                    lines.append(f"• {part.name}: {listing.quantity} listed → {new_quantity}")
+            planned = confirmed[0]
+            set_line = f"List {status.set_name}: {getattr(planned, '_override_price', price_info.suggested_listing_price)}p x {planned.quantity}"
+            body = "\n".join(lines) if lines else "No part listings need to change."
+            answer = self.ui.invoke(
+                lambda: QMessageBox.question(
+                    None, "Combine set?",
+                    f"{set_line}\n\nThese part listings on warframe.market will change:\n{body}\n\n"
+                    "Your parts stay on your Item List until they sell. Continue?",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+                ),
+                wait=True,
+            )
+            if answer != QMessageBox.Yes:
+                self.ui.toast("Combine cancelled. Nothing was changed.", "info", 3500)
+                return
+            applied = self._post_confirmed_inventory_items(confirmed, {set_slug: price_info})
+            if set_slug not in applied:
+                self.ui.toast("The set listing failed, so your part listings were left alone.", "warning", 7000)
+                return
+            fixed = failed = 0
+            for part, listing, new_quantity in changes:
+                try:
+                    if new_quantity <= 0:
+                        if not self.api.delete_order(listing.order_id):
+                            raise WFMApiError(f"Delete failed for {part.name}")
+                        self.account_store.delete_listing(part.slug)
+                    else:
+                        self.api.update_order_price(
+                            listing.order_id, listing.platinum, quantity=new_quantity, visible=listing.visible,
+                        )
+                        self.account_store.upsert_listing(
+                            part.slug, part.name, listing.order_id, item_id=listing.item_id,
+                            platinum=listing.platinum, quantity=new_quantity, visible=listing.visible,
+                        )
+                    fixed += 1
+                except Exception as e:
+                    print(f"[Main] Could not lower the listing for {part.name}: {e}")
+                    failed += 1
+                time.sleep(random.uniform(
+                    config.LISTING_REQUEST_DELAY_MIN_SECONDS, config.LISTING_REQUEST_DELAY_MAX_SECONDS,
+                ))
+            note = f" {failed} part listing(s) could not be changed; check them in the Trading Post." if failed else ""
+            self.ui.toast(f"Set listed. {fixed} part listing(s) updated.{note}", "warning" if failed else "success", 8000)
+            self.ui.refresh_dashboard_profile()
+        except Exception as e:
+            print(f"[Main] Combine set failed: {e}")
+            self.ui.toast(f"Could not combine the set: {e}", "error", 7000)
+        finally:
+            busy.close()
+            self._inventory_lock.release()
+
+    def sell_owned_items(self, url_names: list[str]):
+        """List items picked in Item List, through the same review window as a scan."""
+        if self.api is None:
+            self.ui.toast("❌ Not authenticated. Sign in first (Login / Token).", "error")
+            return
+        if not self._inventory_lock.acquire(blocking=False):
+            self.ui.toast("An inventory scan or review is already running.", "info", 3500)
+            return
+        busy = _Busy(self.ui, "Looking up prices for your selected items...")
+        try:
+            items: list[InventoryItem] = []
+            for url_name in dict.fromkeys(url_names):
+                stored = self.account_store.items.get(url_name)
+                if stored is None or stored.quantity <= 0:
+                    continue
+                item = InventoryItem(
+                    display_name=stored.display_name,
+                    url_name=url_name,
+                    quantity=stored.quantity,
+                    match_score=100,
+                    raw_ocr=stored.display_name,
+                    grid_position=(0, 0),
+                )
+                item._picked_by_user = True
+                items.append(item)
+            if not items:
+                self.ui.toast("Nothing to sell: the selected items are not in your list.", "warning", 4000)
+                return
+
+            price_map: dict[str, PriceInfo] = {}
+            failed: list[str] = []
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=getattr(config, "PRICE_LOOKUP_WORKERS", 4)
+            ) as pool:
+                futures = {pool.submit(self.api.get_price_info, item.url_name): item for item in items}
+                for future in concurrent.futures.as_completed(futures):
+                    item = futures[future]
+                    try:
+                        price_map[item.url_name] = future.result()
+                    except Exception as e:
+                        print(f"[Main] No price for {item.display_name}: {e}")
+                        failed.append(item.display_name)
+            if failed:
+                self.ui.toast(f"⚠ No market data for: {', '.join(failed[:3])}", "warning", 5000)
+            items = [item for item in items if item.url_name in price_map]
+            if not items:
+                return
+
+            existing_listing_map = {}
+            try:
+                self.api.ensure_item_id_manifest()
+                existing_listing_map = self.api.get_existing_sell_listing_map()
+                for item in items:
+                    item_id = self.api.get_item_id(item.url_name)
+                    if item_id:
+                        item._item_id = item_id
+                        existing = existing_listing_map.get(item_id)
+                        if existing is not None:
+                            existing.item_url_name = item.url_name
+                            existing_listing_map[item.url_name] = existing
+            except WFMApiError as e:
+                print(f"[Main] Could not fetch existing listings: {e}")
+                existing_listing_map = {}
+
+            busy.close()
+            confirmed_items = self._show_inventory_review(
+                items,
+                price_map,
+                existing_listing_map,
+                scan_title="Sell from Item List",
+            )
+            return self._post_confirmed_inventory_items(confirmed_items, price_map)
+        finally:
+            busy.close()
+            self._inventory_lock.release()
+
     def _ducat_save_decision(
         self,
         item_url_name: str,
@@ -567,6 +838,7 @@ class App:
             return set()
 
         success, errors = 0, 0
+        first_error = ""
         applied_urls = set()
 
         for item in confirmed_items:
@@ -643,11 +915,21 @@ class App:
                     continue
                 print(f"[Main] ❌ Failed: {item.display_name}: {e}")
                 errors += 1
+                if not first_error:
+                    if "exceededOrderLimit" in str(e) and "SamePrice" not in str(e):
+                        first_error = (
+                            f"{item.display_name}: you already have the maximum number of sell "
+                            "listings on warframe.market (100). Delete some listings first, or use "
+                            "'Keep in Item List, don't list' in the review window."
+                        )
+                    else:
+                        first_error = f"{item.display_name}: {e}"
                 continue
             applied_urls.add(item.url_name)
 
         if errors:
-            self.ui.toast(f"⚠ {success} applied, {errors} failed.", "warning", 6000)
+            reason = f" First problem: {first_error[:420]}" if first_error else ""
+            self.ui.toast(f"⚠ {success} applied, {errors} failed.{reason}", "warning", 12000)
         if applied_urls:
             self.ui.refresh_dashboard_profile()
         return applied_urls
@@ -860,7 +1142,9 @@ class App:
             if remaining <= 0:
                 if self.api.delete_order(existing.order_id):
                     print(f"[Trade] Deleted sold-out listing: {url_name}")
-                    self.account_store.decrement_after_trade(url_name, sold_count)
+                    self.account_store.decrement_after_trade(
+                        url_name, sold_count, existing.platinum * sold_count
+                    )
                     deleted += 1
                 else:
                     print(f"[Trade] Failed to delete sold-out listing: {url_name}")
@@ -875,7 +1159,9 @@ class App:
                     visible=existing.visible,
                 )
                 print(f"[Trade] Reduced listing: {url_name} {existing.quantity} -> {remaining}")
-                self.account_store.decrement_after_trade(url_name, sold_count)
+                self.account_store.decrement_after_trade(
+                    url_name, sold_count, existing.platinum * sold_count
+                )
                 updated += 1
             except (WFMApiError, WFMAuthError) as e:
                 print(f"[Trade] Failed to reduce listing for {url_name}: {e}")
@@ -976,7 +1262,11 @@ class App:
             ) = self._ducat_save_decision(priced["url_name"], priced["display_name"], price_info)
         except Exception as e:
             print(f"[Reward] Price lookup failed for {priced['display_name']}: {e}")
+        hints = self._reward_market_hints(priced["url_name"]) if price is not None else {}
         priced.update({
+            "owned": self._reward_owned_info(priced["url_name"]),
+            "vaulted": bool(hints.get("vaulted")),
+            "trend": hints.get("trend"),
             "price": price,
             "save_for_ducats": save_for_ducats,
             "ducats": ducats,
@@ -989,6 +1279,56 @@ class App:
             ),
         })
         return priced
+
+    def _reward_market_hints(self, url_name: str) -> dict:
+        """Vaulted flag and price direction for the reward overlay (never blocks for long)."""
+        if not getattr(config, "REWARD_MARKET_HINTS", True):
+            return {}
+        try:
+            vaulted = getattr(self, "_vaulted_catalog", None)
+            if vaulted is None:
+                vaulted = self._vaulted_catalog = trade_tools.VaultedCatalog()
+            vaulted.refresh()
+            return trade_tools.market_hints(url_name, vaulted)
+        except Exception as e:
+            print(f"[Reward] Market hints unavailable for {url_name}: {e}")
+            return {}
+
+    def _reward_owned_info(self, url_name: str) -> dict | None:
+        """How much of this reward's set you already hold, or None if it is not part of a set."""
+        try:
+            catalog = getattr(self, "_set_catalog", None)
+            if catalog is None:
+                catalog = self._set_catalog = SetCatalog()
+            if not catalog.is_known(url_name):
+                catalog.refresh([url_name])
+            set_slug = catalog.set_slug_for(url_name)
+            if not set_slug or set_slug == url_name:
+                return None
+            owned = {
+                slug: item.quantity
+                for slug, item in list(self.account_store.items.items())
+                if item.quantity > 0
+            }
+            status = catalog.status_for(set_slug, owned)
+            if status is None or not status.parts:
+                return None
+            return {
+                "set_name": status.set_name,
+                "have": status.parts_have,
+                "total": status.parts_total,
+                "parts": [
+                    {
+                        "name": part.name.replace(status.set_name.removesuffix(" Set") + " ", ""),
+                        "owned": part.owned >= part.needed,
+                        "this": part.slug == url_name,
+                    }
+                    for part in status.parts
+                ],
+            }
+        except Exception as e:
+            print(f"[Reward] Set ownership lookup failed for {url_name}: {e}")
+            return None
 
     def _reward_alternates_with_prices(self, alternates: list[dict]) -> list[dict]:
         priced_alternates: list[dict] = []
@@ -1197,15 +1537,26 @@ class App:
         signature: tuple,
     ):
         main_started = time.perf_counter()
-        rows = [
-            self._reward_row_with_price(row, include_alternates=False)
-            for row in overlay_rows
-        ]
+        # Warm the shared lookups once, then price the rewards side by side.
+        if getattr(self, "_set_catalog", None) is None:
+            self._set_catalog = SetCatalog()
+        try:
+            if getattr(self, "_vaulted_catalog", None) is None:
+                self._vaulted_catalog = trade_tools.VaultedCatalog()
+            self._vaulted_catalog.refresh()
+        except Exception as e:
+            print(f"[Reward] Vaulted list unavailable: {e}")
+        with ThreadPoolExecutor(max_workers=max(1, len(overlay_rows))) as pool:
+            rows = list(pool.map(
+                lambda row: self._reward_row_with_price(row, include_alternates=False), overlay_rows,
+            ))
         print(
             f"[Reward] Main reward prices loaded for {len(rows)} items "
             f"in {time.perf_counter() - main_started:.3f}s"
         )
         self._show_reward_rows_with_prices(rows, signature, best_rows=best_rows)
+        if self._reward_panel_mode():
+            return   # the ranked panel has no "other reads" box, so skip those lookups
 
         alternate_started = time.perf_counter()
         alternate_count = 0
@@ -1230,6 +1581,7 @@ class App:
         duration_ms = self._reward_overlay_remaining_ms()
         if duration_ms <= 0:
             return
+        self._record_reward_history(rows)
         # Only the monitor owns item identities. A delayed price response must
         # not restore an older OCR snapshot used for final selection tracking.
         pending_url = self._pending_reward_pick.get("url_name") if self._pending_reward_pick else None
@@ -1244,8 +1596,24 @@ class App:
             duration_ms=duration_ms,
         )
 
+    def _record_reward_history(self, rows: list[dict]):
+        try:
+            screen_id = getattr(self, "_reward_history_id", None)
+            if not screen_id:
+                return
+            if getattr(self, "_reward_history", None) is None:
+                self._reward_history = RewardHistory()
+            self._reward_history.record(screen_id, rows)
+        except Exception as e:
+            print(f"[Reward] History not saved: {e}")
+
+    def _reward_panel_mode(self) -> bool:
+        return str(getattr(config, "REWARD_OWNED_STYLE", "cards")) in ("cards", "panel")
+
     def _show_reward_placeholders(self, rows: list[dict], signature: tuple):
         """Show recognized reward names immediately while market prices load."""
+        if self._reward_panel_mode():
+            return   # the ranked panel appears once, with prices, instead of flashing "?" first
         if self._last_reward_signature != signature:
             return
         duration_ms = self._reward_overlay_remaining_ms()
@@ -1428,6 +1796,7 @@ class App:
                 self._reward_absent_hits = 0
                 if self._reward_screen_started_at is None:
                     self._reward_screen_started_at = time.monotonic()
+                    self._reward_history_id = str(int(time.time() * 1000))
                 if frame_buffer is None:
                     new_buffer = RewardFrameBuffer(
                         scanner.grabber.fork, scanner.reward_layout_present, frame,
@@ -1642,6 +2011,11 @@ class App:
         if not url_name:
             return
         display_name = str(reward.get("display_name", url_name)).strip()
+        try:
+            if getattr(self, "_reward_history", None) is not None and getattr(self, "_reward_history_id", None):
+                self._reward_history.mark_picked(self._reward_history_id, url_name)
+        except Exception as e:
+            print(f"[Reward] History pick not saved: {e}")
         with self._reward_queue_lock:
             self._queued_reward_picks = self.account_store.queue_reward(url_name, display_name)
             total = sum(int(row.get("quantity", 0)) for row in self._queued_reward_picks.values())
@@ -1863,6 +2237,12 @@ class App:
             "on_hotkeys_changed": self._register_hotkeys,
             "on_ocr_changed": self._reset_ocr_scanners,
             "get_api": lambda: self.api,
+            "on_sell_items": lambda url_names: self._start_hotkey_thread(
+                "Sell selected items", lambda: self.sell_owned_items(url_names)
+            ),
+            "on_combine_set": lambda set_slug: self._start_hotkey_thread(
+                "Combine set", lambda: self.combine_set(set_slug)
+            ),
         }
 
     def _reset_ocr_scanners(self):
@@ -1915,6 +2295,7 @@ class App:
             "ocr",
             "inventory_scanner",
             "inventory_bottom_scanner",
+            "arcane_scanner",
             "trade_scanner",
             "reward_scanner",
         ):
@@ -2349,6 +2730,8 @@ class App:
                                 "Inventory scan (bottom 6) hotkey",
                                 self.scan_inventory_bottom,
                             ))
+        keyboard.add_hotkey(config.HOTKEY_ARCANE_SCAN,
+                            lambda: self._start_hotkey_thread("Arcane scan hotkey", self.scan_arcanes))
         keyboard.add_hotkey(config.HOTKEY_TRADE_MONITOR,
                             lambda: self._start_hotkey_thread("Trade monitor hotkey", self.monitor_trade_and_update_listings))
         keyboard.add_hotkey(
@@ -2372,6 +2755,7 @@ class App:
         print(f"[Main]  {config.HOTKEY_SCAN:<22} — select one item (snip)")
         print(f"[Main]  {config.HOTKEY_INVENTORY_SCAN:<22} — inventory scan (6x3)")
         print(f"[Main]  {config.HOTKEY_INVENTORY_BOTTOM_SCAN:<22} — inventory scan (bottom 6)")
+        print(f"[Main]  {config.HOTKEY_ARCANE_SCAN:<22} — arcane scan (counts)")
         print(f"[Main]  {config.HOTKEY_TRADE_MONITOR:<22} — trade completion monitor")
         print(f"[Main]  {config.HOTKEY_ACCOUNT_UI:<22} — account listing manager")
         print(f"[Main]  {config.HOTKEY_REWARD_SCAN:<22} — reward price overlay")
@@ -2585,6 +2969,7 @@ class App:
             for scanner in (
                 self.inventory_scanner,
                 self.inventory_bottom_scanner,
+                self.arcane_scanner,
                 self.trade_scanner,
                 self.reward_scanner,
             ):
@@ -2741,6 +3126,7 @@ class App:
             for scanner in (
                 self.inventory_scanner,
                 self.inventory_bottom_scanner,
+                self.arcane_scanner,
                 self.trade_scanner,
                 self.reward_scanner,
             ):

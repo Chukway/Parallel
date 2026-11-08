@@ -41,6 +41,8 @@ def sanitize_settings(data: object) -> dict:
         ("sidro_welcome_visual_frequency", ("once_a_day", "every_launch", "never")),
         ("ui_table_text_alignment", ("left", "center", "right")),
         ("ocr_fallback_engine", ("rapidocr", "paddleocr")),
+        ("reward_owned_style", ("cards", "panel", "inline", "list")),
+        ("reward_rank_by", ("plat", "ducats")),
     ):
         if isinstance(data.get(key), str) and data[key] in choices:
             clean[key] = data[key]
@@ -84,7 +86,7 @@ def sanitize_settings(data: object) -> dict:
             clean[key] = [v for v in messages[:100] if isinstance(v, str) and len(v) <= 10000] or [""]
     hotkeys = data.get("hotkeys")
     if isinstance(hotkeys, dict):
-        fields = ("scan", "inventory_scan", "inventory_bottom_scan", "trade_monitor", "account_ui", "reward_scan", "ocr_warmup", "quit")
+        fields = ("scan", "inventory_scan", "inventory_bottom_scan", "arcane_scan", "trade_monitor", "account_ui", "reward_scan", "ocr_warmup", "quit")
         names = set(fields) | {"HOTKEY_" + k.upper() for k in fields}
         clean["hotkeys"] = {
             k: v for k, v in hotkeys.items() if k in names and isinstance(v, str)

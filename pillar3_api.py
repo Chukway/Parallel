@@ -822,6 +822,29 @@ class WarframeMarketAPI:
         print(f"[API] Listing created: {item_id} @ {body['platinum']}p x {body['quantity']}")
         return order
 
+    def post_buy_order(
+        self, item_url_name: str, platinum: int, quantity: int = 1, visible: bool = True
+    ) -> tuple[str, dict]:
+        """Create a buy listing, or change the price of the one you already have for this item.
+
+        Returns ("created" | "updated", order). Buy listings are separate from sell listings.
+        """
+        item_id = self.get_item_id(item_url_name)
+        if not item_id:
+            raise WFMApiError(f"Could not resolve item ID for '{item_url_name}'")
+        price = max(config.MIN_LISTING_PRICE, int(platinum))
+        qty = max(1, int(quantity))
+        for order in self.get_my_orders().get("buy_orders", []):
+            if self._order_matches_item(order, item_url_name, item_id) and order.get("id"):
+                return "updated", self.update_order_price(order["id"], price, qty, visible)
+        body = {"itemId": item_id, "type": "buy", "visible": bool(visible), "platinum": price, "quantity": qty}
+        data = self._request("POST", "/order", json=body)
+        order = data.get("data") or data.get("payload", {}).get("order", {})
+        if not isinstance(order, dict) or not (order.get("id") or order.get("_id")):
+            raise WFMApiError("Warframe.market did not return a created order ID. Check your listings on the site.")
+        print(f"[API] Buy listing created: {item_url_name} @ {price}p x {qty}")
+        return "created", order
+
     # ── Fetch Item ID ─────────────────────────
 
     def get_item_id(self, item_url_name: str) -> Optional[str]:

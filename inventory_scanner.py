@@ -107,6 +107,52 @@ class CardSlicer:
         scale_y = frame_h / base_height if base_height else scale_x
         self._apply_scale(scale_x, scale_y)
 
+    def detect_vertical_shift(self, grid_frame: np.ndarray) -> int:
+        """
+        Pixels the card grid sits below (+) or above (-) where the layout expects it.
+
+        Warframe's inventory grid is not always at the same height on every screen
+        shape, and the label strip is cut off when it is. The dark gaps between card
+        rows give the position away; returns 0 when they cannot be found reliably.
+        """
+        height, width = grid_frame.shape[:2]
+        if grid_frame.ndim != 3 or height < self.stride_y or width < self.card_w:
+            return 0
+        columns = np.zeros(width, dtype=bool)
+        for col in range(self.cols):
+            columns[col * self.stride_x: col * self.stride_x + self.card_w] = True
+        if not columns.any():
+            return 0
+        gray = cv2.cvtColor(grid_frame, cv2.COLOR_BGR2GRAY)
+        profile = gray[:, columns].mean(axis=1)
+        low, high = float(np.percentile(profile, 8)), float(np.percentile(profile, 60))
+        if high - low < 8:
+            return 0
+        threshold = low + 0.35 * (high - low)
+        gap_min = max(4, int(0.45 * (self.stride_y - self.card_h)))
+
+        gap_starts: list[int] = []
+        run_start = None
+        for y, dark in enumerate(profile < threshold):
+            if dark and run_start is None:
+                run_start = y
+            elif not dark and run_start is not None:
+                if run_start > 0 and y - run_start >= gap_min:
+                    gap_starts.append(run_start)
+                run_start = None
+
+        expected_bottoms = [row * self.stride_y + self.card_h for row in range(4)]
+        deltas = []
+        for start in gap_starts:
+            nearest = min(expected_bottoms, key=lambda bottom: abs(start - bottom))
+            if abs(start - nearest) <= 60 * self._scale_y:
+                deltas.append(start - nearest)
+        if len(deltas) < 2 or max(deltas) - min(deltas) > 12 * self._scale_y:
+            return 0
+        # The gap is measured a little after the card's real edge (soft shadow).
+        shift = int(round(float(np.median(deltas)) - 5 * self._scale_y))
+        return max(-int(30 * self._scale_y), min(int(60 * self._scale_y), shift))
+
     def _card_y_for_row(self, row: int) -> int:
         if self.row_y_offset is not None:
             return self.row_y_offset + row * self.stride_y
@@ -788,8 +834,17 @@ class InventoryScanner:
         frame: np.ndarray,
         t_start: float,
         t_capture: float,
+        merge_duplicates: bool = True,
     ) -> InventoryScanResult:
         self.slicer.configure_for_frame(frame)
+        shift = self.slicer.detect_vertical_shift(frame)
+        if shift:
+            print(f"[Scanner] Card grid is {abs(shift)}px {'lower' if shift > 0 else 'higher'} "
+                  f"than expected; aligning the scan.")
+            if shift > 0:
+                frame = frame[shift:]
+            else:
+                frame = cv2.copyMakeBorder(frame, -shift, 0, 0, 0, cv2.BORDER_REPLICATE)
         # ── 2. Slice into label strips ─────────
         label_cells = self.slicer.slice_labels(frame)
         badge_cells = self.slicer.slice_quantity_badges(frame)
@@ -990,7 +1045,9 @@ class InventoryScanner:
         deduped: list[InventoryItem] = []
         merged = 0
         for item in items:
-            if item.url_name not in seen:
+            if not merge_duplicates:
+                deduped.append(item)     # every cell is its own copy (arcane collection screen)
+            elif item.url_name not in seen:
                 seen.add(item.url_name)
                 deduped.append(item)
             else:

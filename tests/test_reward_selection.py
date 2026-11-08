@@ -185,7 +185,7 @@ class RewardTrackingTests(unittest.TestCase):
             _last_reward_price_signature=((0, "kompressa_prime_blueprint", ()), (2, "daikyu_prime_upper_limb", ())),
             _reward_first_overlay_shown=True, _queue_reward_pick=Mock(), _reward_monitor_lock=threading.Lock(),
             _ocr_reset_pending=threading.Event(), api=object(), ui=Mock(),
-            _reward_overlay_remaining_ms=lambda: 1000,
+            _reward_overlay_remaining_ms=lambda: 1000, _record_reward_history=lambda rows: None,
         )
         for name, method in namespace.items():
             if name.startswith("_") and callable(method):

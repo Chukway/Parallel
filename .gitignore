@@ -4,6 +4,8 @@
 
 # Traverse reviewed directories only.
 !/.githooks/
+!/docs/
+!/docs/images/
 !/release_materials/
 !/release_materials/licenses/
 !/release_materials/licenses/qt/
@@ -82,12 +84,20 @@
 !/alert_sound.py
 !/app_settings.example.json
 !/arcane_catalog.py
+!/arcane_scanner.py
 !/auth_manager.py
 !/backup_manager.py
 !/build_exe.bat
 !/build_exe.ps1
 !/build_parallel.ps1
 !/config.py
+!/docs/images/baro.png
+!/docs/images/item-list.png
+!/docs/images/repricing.png
+!/docs/images/reward-overlay.png
+!/docs/images/sales.png
+!/docs/images/set-vs-parts.png
+!/docs/images/watchlist.png
 !/ducats_cache.json
 !/evaluate_inventory_scan.py
 !/expected_inventory_6x3.example.json
@@ -201,6 +211,7 @@
 !/requirements-windowsocr.txt
 !/requirements.txt
 !/reward_frame_buffer.py
+!/reward_history.py
 !/reward_layout.py
 !/reward_scanner.py
 !/run_cpu.bat
@@ -226,9 +237,14 @@
 !/support_reminders.py
 !/tests/README.md
 !/tests/test_arcane_catalog.py
+!/tests/test_arcane_scan.py
 !/tests/test_backup_manager.py
 !/tests/test_dependency_baseline.py
+!/tests/test_edit_item.py
 !/tests/test_inventory_badge_crop.py
+!/tests/test_inventory_grid_alignment.py
+!/tests/test_item_marks.py
+!/tests/test_listing_cleanup.py
 !/tests/test_market_pricing.py
 !/tests/test_mastery_list.py
 !/tests/test_name_aliases.py
@@ -240,12 +256,16 @@
 !/tests/test_release_contract.py
 !/tests/test_release_materials.py
 !/tests/test_release_regressions.py
+!/tests/test_remove_items.py
 !/tests/test_reward_frame_buffer.py
+!/tests/test_reward_owned.py
 !/tests/test_reward_selection.py
+!/tests/test_sell_selected.py
 !/tests/test_set_catalog.py
 !/tests/test_support_reminders.py
 !/tests/test_token_capture.py
 !/tests/test_token_dialog_hook.py
+!/tests/test_trade_tools.py
 !/tests/test_tutorial.py
 !/tests/test_ui_redesign.py
 !/tests/test_ui_release.py
@@ -275,6 +295,8 @@
 !/tools/verify_public_source.py
 !/tools/write_ocr_requirements.py
 !/trade_scanner.py
+!/trade_tools.py
+!/trading_tools_ui.py
 !/tutorial.py
 !/update_core.py
 !/update_ui.py

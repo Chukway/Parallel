@@ -41,6 +41,7 @@
     "scan": "ctrl+shift+s",
     "inventory_scan": "ctrl+shift+i",
     "inventory_bottom_scan": "ctrl+shift+b",
+    "arcane_scan": "ctrl+shift+a",
     "trade_monitor": "ctrl+shift+t",
     "account_ui": "ctrl+shift+m",
     "reward_scan": "ctrl+shift+r",

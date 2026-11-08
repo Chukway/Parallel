@@ -106,9 +106,9 @@ class ThemeUITests(unittest.TestCase):
     def test_navigation_rail_keeps_the_tab_widget_api(self):
         window = self.dashboard()
         tabs = window.tabs
-        self.assertEqual(tabs.count(), 4)
-        self.assertEqual([tabs.tabText(i) for i in range(4)],
-                         ["Inventory Management", "My Items & Sets", "Mastery List", "Arcanes"])
+        self.assertEqual(tabs.count(), 5)
+        self.assertEqual([tabs.tabText(i) for i in range(5)],
+                         ["Trading Post", "Item List", "Mastery List", "Arcanes", "Trading Tools"])
         self.assertEqual(tabs.currentIndex(), 0)
         seen = []
         tabs.currentChanged.connect(seen.append)

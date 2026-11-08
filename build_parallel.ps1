@@ -1,5 +1,5 @@
 ﻿# Builds dist\Parallel\Parallel.exe (onedir, windowed) directly with PyInstaller. Does not run the upstream release_materials gate.
-param([string]$Venv = "S:\.venv-sidro")
+param([string]$Venv = $(if ($env:PARALLEL_VENV) { $env:PARALLEL_VENV } else { Join-Path $PSScriptRoot ".venv" }))
 $ErrorActionPreference = "Stop"
 Set-Location -LiteralPath $PSScriptRoot
 $py = Join-Path $Venv "Scripts\python.exe"
@@ -12,3 +12,7 @@ $ErrorActionPreference = "Continue"   # PyInstaller writes progress to stderr, w
 & $py -m PyInstaller Parallel.spec --noconfirm --clean
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed ($LASTEXITCODE)" }
 Write-Host "Built: $PSScriptRoot\dist\Parallel\Parallel.exe"
+# The Settings > OCR "Install / Repair" buttons read these lists from beside the exe.
+foreach ($f in "requirements-rapidocr-test.txt", "requirements-paddleocr-test.txt", "requirements-windowsocr.txt") {
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot $f) -Destination (Join-Path $PSScriptRoot "dist\Parallel\$f") -Force
+}

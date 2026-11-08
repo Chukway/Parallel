@@ -227,6 +227,9 @@ def _ui_icon(name: str, color: str) -> QIcon:
     elif name == "arcane":
         lines([(12, 2), (21, 12), (12, 22), (3, 12)], True)
         lines([(12, 8), (16, 12), (12, 16), (8, 12)], True)
+    elif name == "trade":
+        lines([(4, 8), (20, 8), (16, 4)])
+        lines([(20, 16), (4, 16), (8, 20)])
     painter.end()
     icon = QIcon(pixmap)
     _UI_ICONS[key] = icon
@@ -503,6 +506,8 @@ def _save_ui_settings():
         "min_listing_price": int(getattr(config, "MIN_LISTING_PRICE", 2)),
         "visual_notifications_enabled": bool(getattr(config, "VISUAL_NOTIFICATIONS_ENABLED", True)),
         "notification_corner": str(getattr(config, "NOTIFICATION_CORNER", "top_left")),
+        "reward_owned_style": str(getattr(config, "REWARD_OWNED_STYLE", "cards")),
+        "reward_rank_by": str(getattr(config, "REWARD_RANK_BY", "plat")),
         "sidro_notification_mascot": bool(getattr(config, "SIDRO_NOTIFICATION_MASCOT", False)),
         "sidro_visual_character": str(getattr(config, "SIDRO_VISUAL_CHARACTER", "robot")),
         "sidro_welcome_visual_frequency": str(getattr(config, "SIDRO_WELCOME_VISUAL_FREQUENCY", "once_a_day")),
@@ -540,6 +545,7 @@ def _save_ui_settings():
             "inventory_bottom_scan": str(
                 getattr(config, "HOTKEY_INVENTORY_BOTTOM_SCAN", "ctrl+shift+b")
             ),
+            "arcane_scan": str(getattr(config, "HOTKEY_ARCANE_SCAN", "ctrl+shift+a")),
             "trade_monitor": str(getattr(config, "HOTKEY_TRADE_MONITOR", "ctrl+shift+t")),
             "account_ui": str(getattr(config, "HOTKEY_ACCOUNT_UI", "ctrl+shift+m")),
             "reward_scan": str(getattr(config, "HOTKEY_REWARD_SCAN", "ctrl+shift+r")),
@@ -724,10 +730,17 @@ class NavTabs(QFrame):
         self._nav.setSpacing(2)
         layout.addLayout(self._nav)
         layout.addStretch(1)
+        self.tools_slot = QVBoxLayout()      # help, chat, settings buttons
+        self.tools_slot.setSpacing(5)
+        layout.addLayout(self.tools_slot)
+        layout.addSpacing(8)
         self.status = QLabel("")
         self.status.setObjectName("RailStatus")
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
+        self.account_slot = QVBoxLayout()    # market profile refresh, OCR load
+        self.account_slot.setSpacing(5)
+        layout.addLayout(self.account_slot)
 
     def set_status(self, text: str, ok: bool):
         self.status.setText(("● " if ok else "○ ") + text.upper())
@@ -1080,6 +1093,44 @@ class Toast(QFrame):
         self.move(x, y)
 
 
+def _owned_color(owned: dict) -> str:
+    have, total = int(owned.get("have", 0)), int(owned.get("total", 0))
+    if total and have >= total:
+        return C_GREEN
+    return C_GOLD2 if have > 0 else C_MUTED
+
+
+class RewardSetTag(QFrame):
+    """Lists the parts of a reward's set, ticked when owned, under the reward card."""
+
+    def __init__(self, owned: dict, x: int, y: int, duration_ms: int, width: int = 220):
+        super().__init__(None, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setObjectName("Panel")
+        self.setFixedWidth(width)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 6, 10, 6)
+        layout.setSpacing(1)
+        title = QLabel(f"{owned.get('set_name', 'Set')} {int(owned['have'])}/{int(owned['total'])}")
+        title.setTextFormat(Qt.PlainText)
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet(f"color: {_owned_color(owned)}; font-size: 14px; font-weight: 700;")
+        layout.addWidget(title)
+        parts = list(owned.get("parts") or [])
+        for part in parts:
+            have = bool(part.get("owned"))
+            name = str(part.get("name", ""))
+            suffix = " (this)" if part.get("this") else ""
+            line = QLabel(f"{'✓' if have else '✗'} {name}{suffix}")
+            line.setTextFormat(Qt.PlainText)
+            line.setStyleSheet(f"color: {C_GREEN if have else C_MUTED}; font-size: 13px;")
+            line.setWordWrap(True)
+            layout.addWidget(line)
+        self.adjustSize()
+        self.move(x, y)
+        QTimer.singleShot(duration_ms, self.close)
+
+
 class RewardPriceTag(QFrame):
     def __init__(
         self,
@@ -1089,6 +1140,10 @@ class RewardPriceTag(QFrame):
         x: int,
         y: int,
         duration_ms: int,
+        owned: dict | None = None,
+        width: int = 190,
+        vaulted: bool = False,
+        trend: dict | None = None,
     ):
         super().__init__(None, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
@@ -1096,6 +1151,16 @@ class RewardPriceTag(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 6, 10, 6)
         price_text = "?" if price is None else f"{price}p"
+        if trend and price is not None:
+            trend_color = {"up": C_GREEN, "down": C_RED}.get(str(trend.get("direction")), C_MUTED)
+            price_text = f'{price_text} <span style="font-size:14px; color:{trend_color}">{trend.get("arrow", "")}</span>'
+        if vaulted:
+            price_text += f' <span style="font-size:13px; color:{C_GOLD}">V</span>'
+        if owned:
+            price_text = (
+                f'{price_text} <span style="font-size:13px; color:{_owned_color(owned)}">'
+                f'| Own {int(owned["have"])}/{int(owned["total"])}</span>'
+            )
         score = max(0, min(100, int(match_score or 0)))
         if score >= int(getattr(config, "REWARD_CONFIDENCE_OK_SCORE", 92)):
             confidence_color = C_GREEN
@@ -1123,19 +1188,260 @@ class RewardPriceTag(QFrame):
         name_label.setAlignment(Qt.AlignCenter)
         name_label.setWordWrap(True)
         name_label.setStyleSheet(f"color: {C_TEXT}; font-size: 14px;")
-        name_label.setFixedWidth(170)
+        name_label.setFixedWidth(width - 20)
         layout.addLayout(top)
         layout.addWidget(name_label)
-        self.resize(190, 72)
+        self.resize(width, 72)
         self.move(x, y)
         QTimer.singleShot(duration_ms, self.close)
 
 
+class RewardRankPanel(QFrame):
+    """One small ranked list in the top-left corner of the screen.
+
+    It sits far from the cards and from the area the app reads to see which reward you
+    picked, ignores the mouse, and is updated in place so it never flickers.
+    """
+
+    def __init__(self):
+        super().__init__(None, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.setObjectName("Panel")
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(12, 8, 12, 8)
+        self._layout.setSpacing(3)
+        self._labels: list[QLabel] = []
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self.hide)
+
+    @staticmethod
+    def _sort_key(row: dict, rank_by: str):
+        price = row.get("price")
+        ducats = row.get("ducats")
+        plat = -1 if price is None else int(price)
+        duc = -1 if ducats is None else int(ducats)
+        return (-duc, -plat) if rank_by == "ducats" else (-plat, -duc)
+
+    @staticmethod
+    def row_html(rank: int, row: dict, best: bool) -> str:
+        name = str(row.get("display_name", ""))
+        if len(name) > 30:
+            name = name[:29] + "…"
+        price = row.get("price")
+        price_text = "?" if price is None else f"{int(price)}p"
+        trend = row.get("trend") or {}
+        arrow = ""
+        if trend:
+            color = {"up": C_GREEN, "down": C_RED}.get(str(trend.get("direction")), C_MUTED)
+            arrow = f' <span style="color:{color}">{html_escape(str(trend.get("arrow", "")))}</span>'
+        vaulted = f' <span style="color:{C_GOLD}">V</span>' if row.get("vaulted") else ""
+        ducats = row.get("ducats")
+        ducat_text = f' <span style="color:{C_MUTED}">{int(ducats)}d</span>' if ducats is not None else ""
+        set_text = ""
+        owned = row.get("owned")
+        if owned:
+            pips, have, total = [], int(owned["have"]), int(owned["total"])
+            adds = False
+            for part in owned.get("parts") or []:
+                have_it, this = bool(part.get("owned")), bool(part.get("this"))
+                if this and not have_it:
+                    adds = True
+                    pips.append(f'<span style="color:{C_GREEN}"><b>+</b></span>')
+                elif have_it:
+                    pips.append(f'<span style="color:{C_GREEN if not this else C_MUTED}">●</span>')
+                else:
+                    pips.append(f'<span style="color:{C_MUTED}">○</span>')
+            if adds:
+                after = min(total, have + 1)
+                done = " set done" if after >= total else ""
+                tail = f'<span style="color:{C_GREEN}"> {have}/{total} → {after}/{total}{done}</span>'
+            else:
+                tail = f'<span style="color:{C_MUTED}"> {have}/{total} (have it)</span>' if pips else ""
+            set_text = "&nbsp;&nbsp;" + "".join(pips) + tail
+        rank_color = C_GREEN if best else C_MUTED
+        return (
+            f'<span style="color:{rank_color}"><b>{rank}</b></span>&nbsp;&nbsp;'
+            f'<span style="color:{C_TEXT}">{html_escape(name)}</span>&nbsp;&nbsp;'
+            f'<span style="color:{C_GOLD2}"><b>{price_text}</b></span>{arrow}{vaulted}{ducat_text}{set_text}'
+        )
+
+    def update_rows(self, rows: list[dict], duration_ms: int):
+        rank_by = str(getattr(config, "REWARD_RANK_BY", "plat"))
+        ordered = sorted(rows, key=lambda row: self._sort_key(row, rank_by))
+        while len(self._labels) < len(ordered):
+            label = QLabel()
+            label.setTextFormat(Qt.RichText)
+            label.setStyleSheet("font-size: 14px;")
+            self._layout.addWidget(label)
+            self._labels.append(label)
+        for index, label in enumerate(self._labels):
+            if index < len(ordered):
+                label.setText(self.row_html(index + 1, ordered[index], best=index == 0))
+                label.show()
+            else:
+                label.hide()
+        self.adjustSize()
+        screen = QGuiApplication.primaryScreen().geometry()
+        self.move(screen.left() + 16, screen.top() + 16)
+        self._timer.start(max(500, int(duration_ms)))
+        if not self.isVisible():
+            self.show()
+
+
+def _reward_set_html(row: dict) -> str:
+    """Set progress for one reward: one dot per part, then what this pick does to the count."""
+    owned = row.get("owned")
+    if not owned:
+        return ""
+    pips, have, total = [], int(owned["have"]), int(owned["total"])
+    adds = False
+    for part in owned.get("parts") or []:
+        have_it, this = bool(part.get("owned")), bool(part.get("this"))
+        if this and not have_it:
+            adds = True
+            pips.append(f'<span style="color:{C_GREEN}"><b>+</b></span>')
+        elif have_it:
+            pips.append(f'<span style="color:{C_GREEN if not this else C_MUTED}">●</span>')
+        else:
+            pips.append(f'<span style="color:{C_MUTED}">○</span>')
+    if adds:
+        after = min(total, have + 1)
+        done = " set done" if after >= total else ""
+        tail = f'<span style="color:{C_GREEN}"> {have}/{total} → {after}/{total}{done}</span>'
+    else:
+        tail = f'<span style="color:{C_MUTED}"> {have}/{total} (have it)</span>' if pips else ""
+    return "".join(pips) + tail
+
+
+def _reward_ranks(rows: list[dict]) -> dict[int, int]:
+    """Map each reward's slot position (index in ``rows``) to its recommendation number, 1 = best."""
+    rank_by = str(getattr(config, "REWARD_RANK_BY", "plat"))
+    priced = [i for i, row in enumerate(rows) if row.get("price") is not None]   # Forma etc. get no number
+    order = sorted(priced, key=lambda i: RewardRankPanel._sort_key(rows[i], rank_by))
+    return {index: place + 1 for place, index in enumerate(order)}
+
+
+class RewardCardTag(QFrame):
+    """A small click-through label placed above or below one reward card."""
+
+    def __init__(self, wrap: bool):
+        super().__init__(None, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.setObjectName("Panel")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setSpacing(0)
+        self.label = QLabel()
+        self.label.setStyleSheet("font-size: 15px;")
+        self.label.setTextFormat(Qt.RichText)
+        self.label.setWordWrap(wrap)
+        self.label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.label)
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self.hide)
+
+    def place(self, html: str, center_x: float, y: float, width: int | None, above: bool, duration_ms: int):
+        self.label.setText(html)
+        if width is not None:
+            self.setFixedWidth(max(80, int(width)))
+        self.adjustSize()
+        top = int(y - self.height()) if above else int(y)
+        self.move(int(center_x - self.width() / 2), max(0, top))
+        self._timer.start(max(500, int(duration_ms)))
+        if not self.isVisible():
+            self.show()
+
+
+class RewardCardTags:
+    """Per-card overlay: plat and ducats above each card, recommendation number, name and set below.
+
+    The bottom label sits below the area the app reads to see which reward was picked. Tags are
+    reused between updates, so a second price pass never flickers.
+    """
+
+    def __init__(self):
+        self.pairs: list[tuple[RewardCardTag, RewardCardTag]] = []
+
+    def hide(self):
+        for top, bottom in self.pairs:
+            top.hide()
+            bottom.hide()
+
+    def close(self):
+        for top, bottom in self.pairs:
+            top.close()
+            bottom.close()
+        self.pairs = []
+
+    @staticmethod
+    def top_html(row: dict, best: bool) -> str:
+        price, ducats = row.get("price"), row.get("ducats")
+        color = C_GREEN if best else C_GOLD2
+        duc_color = C_GREEN if best else C_MUTED
+        trend = row.get("trend") or {}
+        arrow = ""
+        if trend:
+            arrow_color = {"up": C_GREEN, "down": C_RED}.get(str(trend.get("direction")), C_MUTED)
+            arrow = f' <span style="color:{arrow_color}">{html_escape(str(trend.get("arrow", "")))}</span>'
+        vaulted = f' <span style="color:{C_GOLD}">V</span>' if row.get("vaulted") else ""
+        price_text = "?" if price is None else f"{int(price)}p"
+        duc_text = "" if ducats is None else f'&nbsp;&nbsp;<span style="color:{duc_color}">{int(ducats)}d</span>'
+        return (
+            f'<span style="font-size:17px; color:{color}"><b>{price_text}</b></span>{arrow}{vaulted}'
+            f'<span style="font-size:15px">{duc_text}</span>'
+        )
+
+    @staticmethod
+    def bottom_html(row: dict, rank: int) -> str:
+        if not rank:
+            return f'<span style="color:{C_MUTED}">{html_escape(str(row.get("display_name", "")))}</span>'
+        best = rank == 1
+        number_color = C_GREEN if best else C_MUTED
+        name = html_escape(str(row.get("display_name", "")))
+        set_html = _reward_set_html(row)
+        second = f"<br>{set_html}" if set_html else ""
+        return (
+            f'<span style="font-size:20px; color:{number_color}"><b>{rank}</b></span>&nbsp;&nbsp;'
+            f'<span style="color:{C_TEXT}">{name}</span>{second}'
+        )
+
+    def update(self, rewards: list[dict], duration_ms: int):
+        screen = QGuiApplication.primaryScreen()
+        ratio = max(0.1, screen.devicePixelRatio())
+        origin = screen.geometry().topLeft()
+        if len(self.pairs) != len(rewards):
+            self.close()
+            self.pairs = [(RewardCardTag(wrap=False), RewardCardTag(wrap=True)) for _ in rewards]
+        card_xs = sorted(origin.x() + reward["card_rect"][0] / ratio for reward in rewards)
+        gaps = [b - a for a, b in zip(card_xs, card_xs[1:]) if b - a > 20]
+        slot = int(min(gaps)) - 6 if gaps else 260
+        ranks = _reward_ranks(rewards)
+        base_card_w = float(getattr(config, "REWARD_CARD_RECTS", [(0, 0, 240, 240)])[0][2])
+        for index, (reward, (top, bottom)) in enumerate(zip(rewards, self.pairs)):
+            x, y, w, _h = reward["card_rect"]
+            x, y, w = origin.x() + x / ratio, origin.y() + y / ratio, w / ratio
+            scale = max(0.1, float(w) / base_card_w)
+            center = x + w / 2
+            rank = ranks.get(index, 0)
+            if rank:
+                top.place(self.top_html(reward, rank == 1), center, y - 6 * scale, None, True, duration_ms)
+            else:
+                top.hide()
+            # Below the area where the game shows who picked what and the stacked player names
+            # (card top + ~250 to ~400 for a full squad).
+            bottom.place(self.bottom_html(reward, rank), center, y + 415 * scale, slot, False, duration_ms)
+
+
 class RewardAlternateTag(QFrame):
-    def __init__(self, alternates: list[dict], x: int, y: int, duration_ms: int):
+    def __init__(self, alternates: list[dict], x: int, y: int, duration_ms: int, width: int = 230):
         super().__init__(None, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.setObjectName("Panel")
+        self.setFixedWidth(width)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 5, 8, 5)
         title = QLabel("Other reads")
@@ -1156,9 +1462,8 @@ class RewardAlternateTag(QFrame):
             label.setAlignment(Qt.AlignCenter)
             label.setWordWrap(True)
             label.setStyleSheet(f"color: {C_TEXT}; font-size: 14px;")
-            label.setFixedWidth(220)
             layout.addWidget(label)
-        self.resize(230, 58 + 38 * max(0, min(len(alternates), 3) - 1))
+        self.adjustSize()
         self.move(x, y)
         QTimer.singleShot(duration_ms, self.close)
 
@@ -1698,7 +2003,7 @@ class InventoryReviewDialog(QDialog):
 
         self.table = QTableWidget(0, 10 if self.is_reward_queue_review else 8)
         self.table.setHorizontalHeaderLabels(
-            ["List", "Reward", "Queued", "WFM Qty", "Lowest", "Common", "Highest", "Price", "WFM Action", "Remove locally"]
+            ["List", "Reward", "Queued", "WFM Qty", "Lowest", "Common", "Highest", "Price", "WFM Action", "Skip listing"]
             if self.is_reward_queue_review
             else ["Use", "Item", "Quantity", "Lowest", "Most Common", "Highest", "Price", "Action"]
         )
@@ -1763,9 +2068,12 @@ class InventoryReviewDialog(QDialog):
         review_layout.addLayout(selection_bar)
         if self.is_reward_queue_review:
             queue_actions = QHBoxLayout()
-            queue_actions.addWidget(QLabel("Local reward queue actions do not change Warframe.market."))
+            queue_actions.addWidget(QLabel(
+                "These rewards are already in your Item List. Tick Skip listing on a reward to keep it there "
+                "without posting it (Apply selected or the button)."
+            ))
             queue_actions.addStretch()
-            remove_rewards = _button("Remove selected locally", C_RED, "white")
+            remove_rewards = _button("Keep in Item List, don\u0027t list", C_BLUE, "white")
             remove_rewards.clicked.connect(self._remove_selected_queued_rewards)
             queue_actions.addWidget(remove_rewards)
             review_layout.addLayout(queue_actions)
@@ -1819,8 +2127,9 @@ class InventoryReviewDialog(QDialog):
             return
         answer = QMessageBox.question(
             self,
-            "Remove local rewards?",
-            f"Remove {sum(int(row.get('quantity', 0)) for row in selected.values())} reward(s) from Parallel's local queue? This does not change Warframe.market listings.",
+            "Keep in Item List without listing?",
+            f"Clear {sum(int(row.get('quantity', 0)) for row in selected.values())} reward(s) from this queue? "
+            "They stay in your Item List and nothing is posted to or changed on Warframe.market.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -1846,11 +2155,12 @@ class InventoryReviewDialog(QDialog):
             existing = self.existing_listing_map.get(item.url_name)
 
             use = _StyledCheckBox()
-            use.setChecked(False)
+            # Items picked by hand in Item List start ticked; scan results start unticked.
+            use.setChecked(bool(getattr(item, "_picked_by_user", False)))
             use.toggled.connect(self._update_selection_feedback)
             self.table.setCellWidget(row, 0, use)
             name = item.display_name
-            if not self.is_reward_queue_review:
+            if not self.is_reward_queue_review and not getattr(item, "_picked_by_user", False):
                 col, grid_row = item.grid_position
                 name += f"  [row {grid_row + 1}, col {col + 1}]"
             if existing:
@@ -1882,6 +2192,9 @@ class InventoryReviewDialog(QDialog):
                     action.setCurrentText("SKIP" if existing else "UPDATE")
                 self.table.setCellWidget(row, 8, action)
                 self.table.setCellWidget(row, 9, _StyledCheckBox())
+                self.table.cellWidget(row, 9).setToolTip(
+                    "Tick, then use 'Keep in Item List, don't list' to clear this reward without posting it."
+                )
             else:
                 qty = NumberEditor(1, 999, item.quantity)
                 self.table.setCellWidget(row, 2, qty)
@@ -1982,6 +2295,13 @@ class InventoryReviewDialog(QDialog):
         selected: list[InventoryItem] = []
         delete_count = 0
         for row in range(self.table.rowCount()):
+            if self.is_reward_queue_review and self.table.cellWidget(row, 9).isChecked():
+                # "Skip listing" ticked: keep it in the Item List, never post it, and clear it from the queue.
+                skip_url = self.table.verticalHeaderItem(row).text()
+                reward = next((r for r in self.queued_reward_rows if r.get("url_name") == skip_url), None)
+                if reward is not None:
+                    self.removed_queued_rewards[skip_url] = reward
+                continue
             use = self.table.cellWidget(row, 0).isChecked()
             action_column = 8 if self.is_reward_queue_review else 7
             action = self.table.cellWidget(row, action_column).currentText()
@@ -2321,6 +2641,7 @@ class SupportReminderDialog(QDialog):
 
 class SettingsDialog(QDialog):
     ocr_pack_install_finished = Signal(str, str, bool)
+    item_list_refreshed = Signal(str)
 
     COLOR_OPTIONS = [
         ("Window background", ("Background",), "Main app and dialog background."),
@@ -2338,6 +2659,7 @@ class SettingsDialog(QDialog):
         ("Select one item (snip)", "HOTKEY_SCAN"),
         ("Inventory scan (6x3)", "HOTKEY_INVENTORY_SCAN"),
         ("Inventory scan (bottom 6)", "HOTKEY_INVENTORY_BOTTOM_SCAN"),
+        ("Arcane scan (counts)", "HOTKEY_ARCANE_SCAN"),
         ("Trade monitor", "HOTKEY_TRADE_MONITOR"),
         ("Account manager", "HOTKEY_ACCOUNT_UI"),
         ("Reward price check", "HOTKEY_REWARD_SCAN"),
@@ -2456,6 +2778,21 @@ class SettingsDialog(QDialog):
         font_note.setObjectName("Muted")
         font_note.setWordWrap(True)
         ui_layout.addWidget(font_note)
+        log_title = QLabel("Troubleshooting")
+        log_title.setObjectName("Title")
+        ui_layout.addWidget(log_title)
+        self.log_viewing = _StyledCheckBox("Enable log viewing")
+        dashboard_log = getattr(parent, "log_check", None)
+        if dashboard_log is None:
+            self.log_viewing.setEnabled(False)
+        else:
+            self.log_viewing.setChecked(dashboard_log.isChecked())
+            self.log_viewing.toggled.connect(dashboard_log.setChecked)
+        ui_layout.addWidget(self.log_viewing)
+        log_note = QLabel("Opens a window with Parallel's activity log. Only needed when sending a bug report.")
+        log_note.setObjectName("Muted")
+        log_note.setWordWrap(True)
+        ui_layout.addWidget(log_note)
 
         account_layout = make_tab("Account")
         account_title = QLabel("Account")
@@ -2649,6 +2986,27 @@ class SettingsDialog(QDialog):
             pack_grid.addWidget(desc, grid_row + 1, 1, 1, 3)
         ocr_layout.addLayout(pack_grid)
         self._refresh_ocr_pack_status()
+
+        items_title = QLabel("Market item names")
+        items_title.setObjectName("Title")
+        ocr_layout.addWidget(items_title)
+        items_note = QLabel(
+            "Scans match what they read against warframe.market's item list. Parallel refreshes it "
+            "by itself once a day; update it now if a new item or Prime part is not being recognised."
+        )
+        items_note.setObjectName("Muted")
+        items_note.setWordWrap(True)
+        ocr_layout.addWidget(items_note)
+        items_row = QHBoxLayout()
+        self.item_list_status = QLabel("")
+        self.item_list_status.setObjectName("Muted")
+        items_row.addWidget(self.item_list_status, 1)
+        self.item_list_button = _button("Update item names now", C_BLUE, "white")
+        self.item_list_button.clicked.connect(self._update_item_list)
+        items_row.addWidget(self.item_list_button)
+        ocr_layout.addLayout(items_row)
+        self.item_list_refreshed.connect(self._finish_item_list_update)
+        self._show_item_list_status()
         ocr_layout.addStretch()
 
         notify_layout = make_tab("Notifications")
@@ -2692,6 +3050,28 @@ class SettingsDialog(QDialog):
         self.corner_combo.setCurrentText(str(self._pending["notification_corner"]))
         self.corner_combo.currentTextChanged.connect(self._set_notification_corner)
         notify_grid.addWidget(self.corner_combo, 1, 2)
+        notify_grid.addWidget(QLabel("Reward screen ownership:"), 2, 0)
+        self.reward_owned_combo = QComboBox()
+        self.reward_owned_combo.addItem("Tags on each card: plat, ducats, number, set (recommended)", "cards")
+        self.reward_owned_combo.addItem("One ranked list in the top-left corner", "panel")
+        self.reward_owned_combo.addItem("Own 2/4 beside the price", "inline")
+        self.reward_owned_combo.addItem("Set parts listed under each reward", "list")
+        self._set_combo_data(self.reward_owned_combo, str(self._pending.get("reward_owned_style", "inline")))
+        self.reward_owned_combo.currentIndexChanged.connect(
+            lambda _i: self._pending.__setitem__(
+                "reward_owned_style", str(self.reward_owned_combo.currentData() or "inline")
+            )
+        )
+        notify_grid.addWidget(self.reward_owned_combo, 2, 1, 1, 2)
+        notify_grid.addWidget(QLabel("Rank rewards by:"), 3, 0)
+        self.reward_rank_combo = QComboBox()
+        self.reward_rank_combo.addItem("Platinum", "plat")
+        self.reward_rank_combo.addItem("Ducats", "ducats")
+        self._set_combo_data(self.reward_rank_combo, str(self._pending.get("reward_rank_by", "plat")))
+        self.reward_rank_combo.currentIndexChanged.connect(
+            lambda _i: self._pending.__setitem__("reward_rank_by", str(self.reward_rank_combo.currentData() or "plat"))
+        )
+        notify_grid.addWidget(self.reward_rank_combo, 3, 1, 1, 2)
         notify_layout.addLayout(notify_grid)
         notify_layout.addStretch()
 
@@ -2886,6 +3266,8 @@ class SettingsDialog(QDialog):
             "min_listing_price": int(getattr(config, "MIN_LISTING_PRICE", 2)),
             "visual_notifications_enabled": bool(getattr(config, "VISUAL_NOTIFICATIONS_ENABLED", True)),
             "notification_corner": str(getattr(config, "NOTIFICATION_CORNER", "top_left")),
+            "reward_owned_style": str(getattr(config, "REWARD_OWNED_STYLE", "cards")),
+        "reward_rank_by": str(getattr(config, "REWARD_RANK_BY", "plat")),
             "sidro_notification_mascot": bool(getattr(config, "SIDRO_NOTIFICATION_MASCOT", False)),
             "sidro_visual_character": str(getattr(config, "SIDRO_VISUAL_CHARACTER", "robot")),
             "sidro_welcome_visual_frequency": str(getattr(config, "SIDRO_WELCOME_VISUAL_FREQUENCY", "once_a_day")),
@@ -2936,6 +3318,8 @@ class SettingsDialog(QDialog):
         self._pending["alert_sound_volume"] = self.sound_volume.value() / 100
         self._pending["visual_notifications_enabled"] = self.visual_check.isChecked()
         self._pending["notification_corner"] = self.corner_combo.currentText()
+        self._pending["reward_owned_style"] = str(self.reward_owned_combo.currentData() or "cards")
+        self._pending["reward_rank_by"] = str(self.reward_rank_combo.currentData() or "plat")
         self._pending["sidro_notification_mascot"] = self.mascot_check.isChecked()
         self._pending["sidro_visual_character"] = str(self.sidro_visual_combo.currentData() or "robot")
         self._pending["update_check_frequency"] = self.update_frequency_combo.currentData()
@@ -2985,6 +3369,9 @@ class SettingsDialog(QDialog):
         config.ALERT_SOUND_CUSTOM_PATH = str(self._pending["alert_sound_custom_path"])
         config.VISUAL_NOTIFICATIONS_ENABLED = bool(self._pending["visual_notifications_enabled"])
         config.NOTIFICATION_CORNER = str(self._pending["notification_corner"])
+        style = str(self._pending.get("reward_owned_style"))
+        config.REWARD_OWNED_STYLE = style if style in ("cards", "panel", "inline", "list") else "cards"
+        config.REWARD_RANK_BY = "ducats" if str(self._pending.get("reward_rank_by")) == "ducats" else "plat"
         config.SIDRO_NOTIFICATION_MASCOT = bool(self._pending["sidro_notification_mascot"])
         config.SIDRO_VISUAL_CHARACTER = str(self._pending["sidro_visual_character"]).strip().lower()
         if config.SIDRO_VISUAL_CHARACTER not in SIDRO_VISUALS:
@@ -3229,6 +3616,7 @@ class SettingsDialog(QDialog):
             "scan": "HOTKEY_SCAN",
             "inventory_scan": "HOTKEY_INVENTORY_SCAN",
             "inventory_bottom_scan": "HOTKEY_INVENTORY_BOTTOM_SCAN",
+            "arcane_scan": "HOTKEY_ARCANE_SCAN",
             "trade_monitor": "HOTKEY_TRADE_MONITOR",
             "account_ui": "HOTKEY_ACCOUNT_UI",
             "reward_scan": "HOTKEY_REWARD_SCAN",
@@ -3267,6 +3655,8 @@ class SettingsDialog(QDialog):
         self.sound_volume.setValue(int(float(self._pending.get("alert_sound_volume", 0.45)) * 100))
         self.visual_check.setChecked(bool(self._pending.get("visual_notifications_enabled", True)))
         self.corner_combo.setCurrentText(str(self._pending.get("notification_corner", "top_left")))
+        self._set_combo_data(self.reward_owned_combo, str(self._pending.get("reward_owned_style", "cards")))
+        self._set_combo_data(self.reward_rank_combo, str(self._pending.get("reward_rank_by", "plat")))
         self.mascot_check.setChecked(bool(self._pending.get("sidro_notification_mascot", False)))
         self._set_combo_data(self.sidro_visual_combo, str(self._pending.get("sidro_visual_character", "robot")))
         self._update_sidro_visual_preview()
@@ -3388,7 +3778,8 @@ class SettingsDialog(QDialog):
             try:
                 completed = subprocess.run(command, cwd=str(config.APP_DIR), capture_output=True, text=True, timeout=1200)
                 if completed.returncode:
-                    raise RuntimeError((completed.stderr or completed.stdout)[-3000:])
+                    detail = (completed.stderr or "").strip() or (completed.stdout or "").strip()
+                    raise RuntimeError(f"pip exited with code {completed.returncode}.\n...{detail[-800:]}")
                 validate_ocr_backend(backend)
                 message = f"{backend} installed; initialization and inference passed. Restart Parallel before using it."
                 ok = True
@@ -3398,6 +3789,46 @@ class SettingsDialog(QDialog):
             self.ocr_pack_install_finished.emit(backend, message, ok)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _show_item_list_status(self, extra: str = ""):
+        try:
+            path = Path(config.ITEMS_CACHE_PATH)
+            count = len(json.loads(path.read_text(encoding="utf-8")))
+            when = time.strftime("%b %d, %I:%M %p", time.localtime(path.stat().st_mtime))
+            text = f"{count} items, last updated {when}."
+        except Exception:
+            text = "Item list not downloaded yet."
+        self.item_list_status.setText(f"{text} {extra}".strip())
+
+    def _update_item_list(self):
+        self.item_list_button.setEnabled(False)
+        self.item_list_status.setText("Downloading the item list...")
+
+        def worker():
+            try:
+                from pillar2_ocr import ItemsCache
+                try:
+                    before = len(json.loads(Path(config.ITEMS_CACHE_PATH).read_text(encoding="utf-8")))
+                except Exception:
+                    before = 0
+                path = Path(config.ITEMS_CACHE_PATH)
+                stamp_before = path.stat().st_mtime if path.exists() else 0
+                cache = ItemsCache()
+                cache._fetch_and_save()
+                after = len(cache._cache)
+                if after <= 0 or (path.exists() and path.stat().st_mtime == stamp_before):
+                    raise RuntimeError("could not reach warframe.market")
+                new = max(0, after - before)
+                message = f"Updated: {new} new item{'s' if new != 1 else ''}. Restart Parallel to use it."
+            except Exception as e:
+                message = f"Could not update: {e}"
+            self.item_list_refreshed.emit(message)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_item_list_update(self, message: str):
+        self.item_list_button.setEnabled(True)
+        self._show_item_list_status(message)
 
     def _test_ocr_pack(self, backend: str):
         if getattr(self, "_ocr_pack_busy", False):
@@ -3914,10 +4345,76 @@ class _SetProgressDelegate(QStyledItemDelegate):
         painter.restore()
 
 
+def _market_item_names() -> dict[str, str]:
+    """warframe.market display name -> url_name, from the cached item list (empty if unavailable)."""
+    try:
+        with open(config.ITEMS_CACHE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return {str(k): str(v) for k, v in data.items()}
+    except Exception:
+        return {}
+
+
+def _ask_sold(parent, entries: list[tuple[str, str, int, int]]) -> list[tuple[str, str, int, int]]:
+    """Ask which manually removed items were sold; returns the ones to add to the Sales log."""
+    from trading_tools_ui import ask_sold   # imported late: it imports this module
+    return ask_sold(parent, entries)
+
+
+class ItemEditDialog(QDialog):
+    """Add an item by hand, or fix the name/quantity of one the scanner got wrong."""
+
+    def __init__(self, parent, names: dict[str, str], name: str = "", quantity: int = 1):
+        super().__init__(parent)
+        self.setWindowTitle("Edit item" if name else "Add item")
+        self.setMinimumWidth(420)
+        self._names = names
+        self._by_folded = {k.casefold(): (k, v) for k, v in names.items()}
+        layout = QVBoxLayout(self)
+        layout.setSpacing(8)
+        layout.addWidget(QLabel("Item name (start typing and pick from the list):"))
+        self.name_input = QLineEdit(name)
+        self.name_input.setAccessibleName("Item name")
+        completer = QCompleter(sorted(names), self.name_input)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchContains)
+        self.name_input.setCompleter(completer)
+        layout.addWidget(self.name_input)
+        layout.addWidget(QLabel("Quantity:"))
+        self.quantity_input = QSpinBox()
+        self.quantity_input.setRange(1, 9999)
+        self.quantity_input.setValue(max(1, int(quantity)))
+        layout.addWidget(self.quantity_input)
+        self.error = QLabel("")
+        self.error.setStyleSheet(f"color: {C_RED};")
+        layout.addWidget(self.error)
+        row = QHBoxLayout()
+        row.addStretch()
+        cancel = _button("Cancel", C_BG3, C_TEXT)
+        cancel.clicked.connect(self.reject)
+        row.addWidget(cancel)
+        self.ok_button = _button("Save", C_GREEN, "white")
+        self.ok_button.clicked.connect(self._accept)
+        row.addWidget(self.ok_button)
+        layout.addLayout(row)
+        self.result_item: tuple[str, str, int] | None = None
+
+    def _accept(self):
+        found = self._by_folded.get(self.name_input.text().strip().casefold())
+        if found is None:
+            self.error.setText("That name is not on warframe.market. Pick one from the suggestions.")
+            return
+        self.result_item = (found[1], found[0], self.quantity_input.value())
+        self.accept()
+
+
 class OwnedInventoryPage(QWidget):
     """Everything Parallel knows you own, with listing state and set completion."""
 
     sets_refreshed = Signal(str)
+    listings_checked = Signal(str)
+    removal_done = Signal(str, object)
+    lowered = Signal(str)
 
     FILTERS = [
         "All items",
@@ -3926,16 +4423,27 @@ class OwnedInventoryPage(QWidget):
         "Prime parts",
         "Listed on market",
         "Not listed",
+        "On Mastery List",
     ]
 
     def __init__(self, store: AccountStore, notify: Callable[[str, str, int], None] | None = None):
         super().__init__()
         self.store = store
         self.catalog = SetCatalog()
+        # Set slugs on the Mastery List; supplied by the dashboard so items can show a star.
+        self.mastery_slugs: Callable[[], set[str]] = lambda: set()
         self._notify_cb = notify
         self._refreshing = False
         self._auto_refreshed = False
         self.sets_refreshed.connect(self._finish_refresh)
+        self.listings_checked.connect(self._finish_check_listings)
+        self.removal_done.connect(self._finish_removal)
+        self.lowered.connect(self._finish_lowered)
+        self.update_listings: Callable[[dict], str] | None = None
+        self.delete_listings: Callable[[list[str]], str] | None = None
+        self.refresh_listings: Callable[[], str] | None = None
+        self._checking = False
+        self._listed_before: set[str] = set()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -3943,9 +4451,15 @@ class OwnedInventoryPage(QWidget):
 
         bar_frame = QFrame()
         bar_frame.setObjectName("InventoryStatus")
-        bar = QHBoxLayout(bar_frame)
-        bar.setContentsMargins(12, 9, 12, 9)
+        bar_rows = QVBoxLayout(bar_frame)
+        bar_rows.setContentsMargins(12, 9, 12, 9)
+        bar_rows.setSpacing(8)
+        bar = QHBoxLayout()          # top row: summary, filter, search, set data
         bar.setSpacing(10)
+        bar2 = QHBoxLayout()         # second row: actions on the selected items
+        bar2.setSpacing(10)
+        bar_rows.addLayout(bar)
+        bar_rows.addLayout(bar2)
         self.summary = QLabel("")
         self.summary.setObjectName("InventorySummary")
         self.summary.setMinimumHeight(32)
@@ -3968,11 +4482,50 @@ class OwnedInventoryPage(QWidget):
         )
         self.refresh_button.clicked.connect(lambda: self.refresh_sets(manual=True))
         bar.addWidget(self.refresh_button)
+        self.select_all_button = _button("Select all", C_BG3, C_TEXT)
+        self.select_all_button.setToolTip("Selects every row; press again to clear the selection")
+        self.select_all_button.clicked.connect(self._toggle_select_all)
+        bar.addWidget(self.select_all_button)
         self.add_to_mastery: Callable[[str], None] | None = None
+        self.sell_items: Callable[[list[str]], None] | None = None
+        self.sell_button = _button("Sell selected on warframe.market", C_GREEN, "white")
+        self.sell_button.setToolTip(
+            "Opens the same review window as an inventory scan for the selected items, "
+            "with prices. Nothing is listed until you confirm there."
+        )
+        self.sell_button.clicked.connect(self._sell_selected)
+        bar2.addWidget(self.sell_button)
         self.mastery_button = _button("Add set to Mastery List", C_GREEN, "white")
         self.mastery_button.setToolTip("Adds the set of the selected item to the Mastery List tab")
         self.mastery_button.clicked.connect(self._add_selected_to_mastery)
-        bar.addWidget(self.mastery_button)
+        bar2.addWidget(self.mastery_button)
+        self.get_api: Callable[[], object] = lambda: None
+        self.compare_button = _button("Set vs parts", C_BG3, C_TEXT)
+        self.compare_button.setToolTip(
+            "For the selected item's set: is the whole set worth more than selling the parts one by one?"
+        )
+        self.compare_button.clicked.connect(self._compare_selected_set)
+        bar2.addWidget(self.compare_button)
+        self.combine_set: Callable[[str], None] | None = None
+        self.combine_button = _button("Combine set", C_GREEN, "white")
+        self.combine_button.setToolTip(
+            "Lists one full set from the selected item's parts and lowers the listings of those parts so the "
+            "same items are not sold twice. You choose the price and confirm every change."
+        )
+        self.combine_button.clicked.connect(self._combine_selected_set)
+        bar2.addWidget(self.combine_button)
+        self.add_to_watchlist: Callable[[list[tuple[str, str]]], None] | None = None
+        self.watch_button = _button("Add to watchlist", C_BG3, C_TEXT)
+        self.watch_button.setToolTip("Sends the selected items to Trading Tools, Watchlist")
+        self.watch_button.clicked.connect(self._watch_selected)
+        bar2.addWidget(self.watch_button)
+        self.watch_missing_button = _button("Watch still-needed parts", C_BG3, C_TEXT)
+        self.watch_missing_button.setToolTip(
+            "For the sets of the selected items, sends only the parts you still need to the Watchlist"
+        )
+        self.watch_missing_button.clicked.connect(self._watch_missing)
+        bar2.addWidget(self.watch_missing_button)
+        bar2.addStretch(1)
         layout.addWidget(bar_frame)
 
         self.table = QTableWidget(0, 6)
@@ -3986,9 +4539,277 @@ class OwnedInventoryPage(QWidget):
         self.table.horizontalHeader().setSectionsClickable(True)
         self.table.setItemDelegateForColumn(4, _SetProgressDelegate(self.table))
         self.table.verticalHeader().setDefaultSectionSize(52)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setSelectionMode(QTableWidget.ExtendedSelection)
+        self.table.itemSelectionChanged.connect(self._sync_select_all_label)
         layout.addWidget(self.table, 1)
 
+        footer_frame = QFrame()
+        footer_frame.setObjectName("Toolbar")
+        footer = QHBoxLayout(footer_frame)
+        footer.setContentsMargins(12, 10, 12, 10)
+        footer.setSpacing(10)
+        self.items_changed: Callable[[], None] | None = None
+        self.remove_button = _button("Remove selected items", C_RED, "white")
+        self.remove_button.setToolTip(
+            "Remove items from this list, e.g. after they sold or if they were detected wrongly. "
+            "If an item is listed on warframe.market you are asked whether to delete that listing "
+            "too. Hold Ctrl or Shift to pick several."
+        )
+        self.remove_button.clicked.connect(self._remove_selected_items)
+        footer.addWidget(self.remove_button)
+        self.add_item_button = _button("Add item", C_GREEN, "white")
+        self.add_item_button.setToolTip("Add an item by hand that the scanner missed")
+        self.add_item_button.clicked.connect(lambda: self._edit_item(None))
+        footer.addWidget(self.add_item_button)
+        self.edit_item_button = _button("Edit selected item", C_BG3, C_TEXT)
+        self.edit_item_button.setToolTip(
+            "Fix the name or quantity of the selected item (you can also double-click a row)"
+        )
+        self.edit_item_button.clicked.connect(self._edit_selected)
+        footer.addWidget(self.edit_item_button)
+        self.table.doubleClicked.connect(lambda _index: self._edit_selected())
+        self.check_button = _button("Check my listings", C_BG3, C_TEXT)
+        self.check_button.setToolTip(
+            "Compares your list with what is on warframe.market right now. Items that were listed "
+            "before but are gone (sold or deleted) can be removed from this list."
+        )
+        self.check_button.clicked.connect(self._check_listings)
+        footer.addWidget(self.check_button)
+        footer.addStretch()
+        layout.addWidget(footer_frame)
+
         self.reload()
+
+    def _check_listings(self):
+        if self._checking or self.refresh_listings is None:
+            return
+        self._checking = True
+        self.check_button.setEnabled(False)
+        self.summary.setText("Checking warframe.market...")
+        self._listed_before = {url for url, listing in self.store.listings.items() if listing.quantity > 0}
+
+        def worker():
+            try:
+                message = self.refresh_listings()
+            except Exception as e:
+                message = f"ERROR: Could not check listings: {e}"
+            self.listings_checked.emit(message)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_check_listings(self, message: str):
+        self._checking = False
+        self.check_button.setEnabled(True)
+        self.reload()
+        if self.items_changed is not None:
+            self.items_changed()
+        if message.startswith("ERROR") or message.startswith("Not authenticated"):
+            if self._notify_cb is not None:
+                self._notify_cb(message, "error", 5000)
+            return
+        listed_now = {url for url, listing in self.store.listings.items() if listing.quantity > 0}
+        gone = sorted(
+            (url for url in self._listed_before - listed_now if url in self.store.items),
+            key=lambda url: self.store.display_name(url).casefold(),
+        )
+        if not gone:
+            if self._notify_cb is not None:
+                self._notify_cb(f"Up to date: {len(listed_now)} items are listed on warframe.market.", "info", 4000)
+            return
+        names = "\n".join(f"  • {self.store.display_name(url)}" for url in gone[:15])
+        if len(gone) > 15:
+            names += f"\n  …and {len(gone) - 15} more"
+        answer = QMessageBox.question(
+            self,
+            "No longer listed",
+            f"{len(gone)} item(s) were listed before but are not on warframe.market any more "
+            f"(sold or deleted):\n\n{names}\n\nRemove them from the Item List?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        removed = self.store.remove_items(gone)
+        self.reload()
+        if self.items_changed is not None:
+            self.items_changed()
+        if self._notify_cb is not None:
+            self._notify_cb(f"Removed {removed} item{'s' if removed != 1 else ''} from your list.", "info", 3500)
+
+    def _edit_selected(self):
+        rows = sorted({index.row() for index in self.table.selectionModel().selectedRows()})
+        if len(rows) != 1 or self.table.item(rows[0], 0) is None:
+            if self._notify_cb is not None:
+                self._notify_cb("Select one item to edit.", "warning", 3000)
+            return
+        self._edit_item(self.table.item(rows[0], 0).data(Qt.UserRole))
+
+    def _edit_item(self, slug: str | None):
+        names = _market_item_names()
+        if not names:
+            if self._notify_cb is not None:
+                self._notify_cb("The item list is not loaded yet. Run a scan or try again shortly.", "warning", 4000)
+            return
+        current = self.store.items.get(slug) if slug else None
+        dialog = ItemEditDialog(
+            self, names, current.display_name if current else "", current.quantity if current else 1
+        )
+        if dialog.exec() != QDialog.Accepted or dialog.result_item is None:
+            return
+        url_name, display_name, quantity = dialog.result_item
+        self.store.set_item(slug, url_name, display_name, quantity)
+        self.reload()
+        if self.items_changed is not None:
+            self.items_changed()
+        if self._notify_cb is not None:
+            self._notify_cb(f"Saved {display_name} x{quantity}.", "info", 3000)
+
+    def _sell_selected(self):
+        rows = sorted({index.row() for index in self.table.selectionModel().selectedRows()})
+        slugs = [self.table.item(row, 0).data(Qt.UserRole) for row in rows if self.table.item(row, 0) is not None]
+        if not slugs:
+            if self._notify_cb is not None:
+                self._notify_cb("Select the item(s) you want to sell first (Ctrl or Shift for several).", "warning", 3500)
+            return
+        if self.sell_items is None:
+            return
+        self.sell_items(slugs)
+
+    def _remove_selected_items(self):
+        rows = sorted({index.row() for index in self.table.selectionModel().selectedRows()})
+        slugs = [self.table.item(row, 0).data(Qt.UserRole) for row in rows if self.table.item(row, 0) is not None]
+        if not slugs:
+            if self._notify_cb is not None:
+                self._notify_cb("Select the item(s) you want to remove first.", "warning", 3000)
+            return
+        self._pending_sales = {}
+        sold = _ask_sold(self, [
+            (slug, self.store.display_name(slug), int(self.store.items[slug].quantity) if slug in self.store.items else 1,
+             int(self.store.listings[slug].platinum * max(1, self.store.items[slug].quantity))
+             if slug in self.store.listings and slug in self.store.items else 0)
+            for slug in slugs
+        ])
+        sales = {slug: (name, qty, plat) for slug, name, qty, plat in sold}
+        # Some of an item sold (e.g. 1 of 2): record that many and keep the rest on the list.
+        partial = {
+            slug for slug, (_n, qty, _p) in sales.items()
+            if slug in self.store.items and qty < int(self.store.items[slug].quantity)
+        }
+        self._pending_sales = {slug: sale for slug, sale in sales.items() if slug not in partial}
+        slugs = [slug for slug in slugs if slug not in partial]
+
+        def apply_partial_sales():
+            lower = {}
+            for slug in partial:
+                name, qty, plat = sales[slug]
+                listing = self.store.listings.get(slug)
+                if listing is not None and int(listing.quantity) > qty and self.update_listings is not None:
+                    lower[slug] = {
+                        "price": listing.platinum, "quantity": int(listing.quantity) - qty, "visible": listing.visible,
+                    }
+                self.store.add_sale(slug, name, qty, plat, take_from_items=True)
+            if lower and QMessageBox.question(
+                self,
+                "Lower the market listing too?",
+                f"{len(lower)} of these are listed on warframe.market. Lower those listings by the number you sold "
+                "(the rest stays listed)?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            ) == QMessageBox.StandardButton.Yes:
+                def worker():
+                    try:
+                        message = self.update_listings(lower)
+                    except Exception as e:
+                        message = f"ERROR: {e}"
+                    self.lowered.emit(message)
+                threading.Thread(target=worker, daemon=True).start()
+
+        if not slugs:
+            apply_partial_sales()
+            self.reload()
+            if self.items_changed is not None:
+                self.items_changed()
+            if self._notify_cb is not None:
+                self._notify_cb(f"Recorded {len(partial)} sale(s); the rest stays on your Item List.", "info", 4000)
+            return
+        names = ", ".join(self.store.display_name(slug) for slug in slugs[:3])
+        if len(slugs) > 3:
+            names += f" and {len(slugs) - 3} more"
+        listed = [
+            slug for slug in slugs
+            if slug in self.store.listings and self.store.listings[slug].quantity > 0
+        ] if self.delete_listings is not None else []
+        note = (
+            "Some of these are listed on warframe.market; you will be asked about those next."
+            if listed else
+            "This only changes Parallel. It does not touch your warframe.market listings."
+        )
+        answer = QMessageBox.question(
+            self,
+            "Remove from Item List?",
+            f"Remove {names} from Parallel's list of items you own?\n\n{note}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            self._pending_sales = {}
+            return
+        apply_partial_sales()
+        if listed:
+            delete_market = QMessageBox.question(
+                self,
+                "Delete the market listing too?",
+                f"{len(listed)} of these are listed on warframe.market. Delete those listings too?\n\n"
+                "Choose Yes if they were sold. Choose No to keep the listings on the market.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            ) == QMessageBox.StandardButton.Yes
+            if delete_market:
+                self._delete_listings_then_forget(slugs, listed)
+                return
+        self._forget_items(slugs)
+    def _forget_items(self, slugs: list[str], prefix: str = ""):
+        pending = getattr(self, "_pending_sales", {})
+        for slug in slugs:
+            sale = pending.pop(slug, None)
+            if sale is not None:   # only items that really leave the list are logged as sold
+                name, quantity, platinum = sale
+                self.store.add_sale(slug, name, quantity, platinum)
+        removed = self.store.remove_items(slugs)
+        self.reload()
+        if self.items_changed is not None:
+            self.items_changed()
+        if self._notify_cb is not None:
+            self._notify_cb(
+                f"{prefix}Removed {removed} item{'s' if removed != 1 else ''} from your list.", "info", 3500
+            )
+
+    def _delete_listings_then_forget(self, slugs: list[str], listed: list[str]):
+        self.remove_button.setEnabled(False)
+        self.summary.setText("Deleting listings on warframe.market...")
+
+        def worker():
+            try:
+                message = self.delete_listings(listed)
+            except Exception as e:
+                message = f"ERROR: {e}"
+            self.removal_done.emit(message, slugs)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_lowered(self, message: str):
+        self.reload()
+        if self._notify_cb is not None:
+            self._notify_cb(message, "info", 5000)
+
+    def _finish_removal(self, message: str, slugs: object):
+        self.remove_button.setEnabled(True)
+        # Keep any item whose listing could not be deleted, so nothing is left half done.
+        keep = {slug for slug in slugs if slug in self.store.listings and self.store.listings[slug].quantity > 0}
+        self._forget_items([slug for slug in slugs if slug not in keep], prefix=f"{message} ")
+        if keep and self._notify_cb is not None:
+            self._notify_cb(f"{len(keep)} listing(s) could not be deleted, so those items were kept.", "warning", 5000)
 
     # ── building rows ────────────────────────────────────────────
     def _owned_map(self) -> dict[str, int]:
@@ -3996,22 +4817,26 @@ class OwnedInventoryPage(QWidget):
 
     def reload(self):
         owned = self._owned_map()
+        mastery = set(self.mastery_slugs())
         rows = []
         for url, qty in owned.items():
             item = self.store.items[url]
             listing = self.store.listings.get(url)
             set_slug = self.catalog.set_slug_for(url)
             status = self.catalog.status_for(set_slug, owned) if set_slug else None
-            rows.append((item, qty, listing, status))
+            rows.append((item, qty, listing, status, bool(set_slug and set_slug in mastery)))
 
         self.table.setSortingEnabled(False)
         self.table.setUpdatesEnabled(False)
         try:
             self.table.setRowCount(0)
-            for item, qty, listing, status in rows:
+            for item, qty, listing, status, on_mastery in rows:
                 row = self.table.rowCount()
                 self.table.insertRow(row)
-                name_item = _table_item(item.display_name)
+                is_listed = listing is not None and listing.quantity > 0
+                # ★ = its set is on the Mastery List, $ = listed on warframe.market
+                marks = ("  ★" if on_mastery else "") + ("  $" if is_listed else "")
+                name_item = _table_item(item.display_name + marks)
                 name_item.setData(Qt.UserRole, item.url_name)
                 self.table.setItem(row, 0, name_item)
                 qty_item = QTableWidgetItem()
@@ -4058,12 +4883,16 @@ class OwnedInventoryPage(QWidget):
                     cell.setData(Qt.UserRole + 2, tag)
                     cell.setData(Qt.UserRole + 3, listing is not None and listing.quantity > 0)
                     cell.setData(Qt.UserRole + 4, "prime" in item.url_name)
+                    cell.setData(Qt.UserRole + 5, on_mastery)
                     if tag == "can_build":
                         cell.setForeground(QColor(C_GOLD))
                     elif tag == "near":
                         cell.setForeground(QColor(C_BLUE if QColor(C_BG).lightness() > 140 else C_GOLD2))
                 self.table.item(row, 1).setFont(_mono_font(self.table.font()))
                 self.table.item(row, 2).setFont(_mono_font(self.table.font()))
+                if is_listed:
+                    # Listed items stand out in green on the "Listed" column.
+                    self.table.item(row, 2).setForeground(QColor(C_GREEN))
         finally:
             self.table.setUpdatesEnabled(True)
             self.table.setSortingEnabled(True)
@@ -4089,6 +4918,8 @@ class OwnedInventoryPage(QWidget):
                 visible = visible and listed
             elif mode == "Not listed":
                 visible = visible and not listed
+            elif mode == "On Mastery List":
+                visible = visible and bool(name.data(Qt.UserRole + 5))
             self.table.setRowHidden(row, not visible)
             shown += 1 if visible else 0
             buildable += 1 if tag == "can_build" else 0
@@ -4100,6 +4931,7 @@ class OwnedInventoryPage(QWidget):
         })
         self.summary.setText(
             f"{shown} of {total} items  ·  {complete_sets} set{'s' if complete_sets != 1 else ''} ready to build"
+            "  ·  ★ on Mastery List   $ listed on market"
         )
 
     def _add_selected_to_mastery(self):
@@ -4110,6 +4942,109 @@ class OwnedInventoryPage(QWidget):
                 self._notify_cb("Select an item first.", "warning", 3000)
             return
         self.add_to_mastery(item.data(Qt.UserRole))
+
+    def _selected_slugs(self) -> list[str]:
+        rows = sorted({index.row() for index in self.table.selectionModel().selectedRows()})
+        return [self.table.item(row, 0).data(Qt.UserRole) for row in rows if self.table.item(row, 0) is not None]
+
+    def _watch_selected(self):
+        slugs = self._selected_slugs()
+        if not slugs:
+            if self._notify_cb is not None:
+                self._notify_cb("Select the item(s) first (Ctrl or Shift for several, or Select all).", "warning", 3500)
+            return
+        if self.add_to_watchlist is not None:
+            self.add_to_watchlist([(slug, self.store.display_name(slug)) for slug in slugs])
+
+    def _watch_missing(self):
+        slugs = self._selected_slugs()
+        if not slugs:
+            if self._notify_cb is not None:
+                self._notify_cb("Select the item(s) first (Ctrl or Shift for several, or Select all).", "warning", 3500)
+            return
+        owned = self._owned_map()
+        wanted: dict[str, str] = {}
+        for slug in slugs:
+            set_slug = self.catalog.set_slug_for(slug)
+            status = self.catalog.status_for(set_slug, owned) if set_slug else None
+            for part in (status.missing_parts if status else []):
+                wanted[part.slug] = part.name
+        if not wanted:
+            if self._notify_cb is not None:
+                self._notify_cb("Nothing is missing for the selected sets.", "info", 3500)
+            return
+        if self.add_to_watchlist is not None:
+            self.add_to_watchlist(sorted(wanted.items(), key=lambda kv: kv[1]))
+
+    def _compare_selected_set(self):
+        row = self.table.currentRow()
+        item = self.table.item(row, 0) if row >= 0 else None
+        api = self.get_api()
+        if item is None and not self._selected_slugs():
+            if self._notify_cb is not None:
+                self._notify_cb("Select one or more items first.", "warning", 3000)
+            return
+        if api is None:
+            if self._notify_cb is not None:
+                self._notify_cb("Log in to warframe.market first (Login / Token).", "warning", 4000)
+            return
+        set_slugs: list[str] = []
+        for slug in self._selected_slugs() or ([item.data(Qt.UserRole)] if item is not None else []):
+            set_slug = self.catalog.set_slug_for(slug)
+            if set_slug and set_slug not in set_slugs:
+                set_slugs.append(set_slug)
+        if not set_slugs:
+            if self._notify_cb is not None:
+                self._notify_cb("None of the selected items are part of a set. Try Refresh set data.", "warning", 4000)
+            return
+        from trading_tools_ui import SetCompareDialog   # imported late: it imports this module
+        SetCompareDialog(self, api, self.catalog, set_slugs, self._owned_map()).exec()
+
+    def _combine_selected_set(self):
+        slugs = self._selected_slugs()
+        notify = self._notify_cb or (lambda *args: None)
+        if len(slugs) != 1:
+            notify("Select one part of the set you want to combine.", "warning", 3500)
+            return
+        set_slug = self.catalog.set_slug_for(slugs[0])
+        status = self.catalog.status_for(set_slug, self._owned_map()) if set_slug else None
+        if status is None or not status.parts:
+            notify("That item is not part of a set. Try Refresh set data.", "warning", 4000)
+            return
+        if status.buildable < 1:
+            missing = ", ".join(part.name for part in status.missing_parts[:4])
+            notify(f"You can not combine {status.set_name} yet. Missing: {missing}.", "warning", 6000)
+            return
+        if self.combine_set is None:
+            return
+        parts = "\n".join(f"• {part.name}" + (f" x{part.needed}" if part.needed > 1 else "") for part in status.parts)
+        answer = QMessageBox.question(
+            self, "Combine set?",
+            f"Combine {status.set_name}?\n\nThis uses one of each part:\n{parts}\n\n"
+            "Next you choose the set price, then you see exactly which part listings change before anything is sent.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self.combine_set(status.set_slug)
+
+    def _toggle_select_all(self):
+        from PySide6.QtCore import QItemSelectionModel
+        visible = [r for r in range(self.table.rowCount()) if not self.table.isRowHidden(r)]
+        selected = {i.row() for i in self.table.selectionModel().selectedRows()}
+        if visible and set(visible) <= selected:
+            self.table.clearSelection()
+        else:
+            model = self.table.selectionModel()
+            for r in visible:
+                model.select(self.table.model().index(r, 0),
+                             QItemSelectionModel.Select | QItemSelectionModel.Rows)
+        self._sync_select_all_label()
+
+    def _sync_select_all_label(self):
+        visible = {r for r in range(self.table.rowCount()) if not self.table.isRowHidden(r)}
+        selected = {i.row() for i in self.table.selectionModel().selectedRows()}
+        everything = bool(visible) and visible <= selected
+        self.select_all_button.setText("Deselect all" if everything else "Select all")
 
     # ── set data refresh ─────────────────────────────────────────
     def _uncached_slugs(self) -> list[str]:
@@ -4216,13 +5151,29 @@ class MasteryListPage(QWidget):
         footer = QHBoxLayout(footer_frame)
         footer.setContentsMargins(12, 10, 12, 10)
         footer.setSpacing(10)
+        self.items_changed: Callable[[], None] | None = None
         self.remove_button = _button("Remove selected set", C_RED, "white")
         self.remove_button.clicked.connect(self._remove_selected)
+        self.not_owned_button = _button("I don't own this part", C_BG3, C_TEXT)
+        self.not_owned_button.setToolTip(
+            "Select a part row that is counted as owned by mistake and forget it. "
+            "Only changes Parallel, never your warframe.market listings."
+        )
+        self.not_owned_button.clicked.connect(self._remove_selected_part)
         self.copy_button = _button("Copy shopping list", C_BG3, C_TEXT)
         self.copy_button.setToolTip("Copies every missing part, e.g. for searching warframe.market")
         self.copy_button.clicked.connect(self._copy_shopping_list)
+        self.add_to_watchlist: Callable[[list[tuple[str, str]]], None] | None = None
+        self.watch_button = _button("Add missing parts to watchlist", C_BG3, C_TEXT)
+        self.watch_button.setToolTip(
+            "Sends the parts you still need to Trading Tools, Watchlist. Uses the selected set, "
+            "or every set on the list if none is selected."
+        )
+        self.watch_button.clicked.connect(self._watch_missing)
         footer.addWidget(self.remove_button)
+        footer.addWidget(self.not_owned_button)
         footer.addStretch()
+        footer.addWidget(self.watch_button)
         footer.addWidget(self.copy_button)
         layout.addWidget(footer_frame)
 
@@ -4258,6 +5209,7 @@ class MasteryListPage(QWidget):
                     for column, text in enumerate(cells):
                         item = _table_item(text, mono=column in (2, 3, 4))
                         item.setData(Qt.UserRole, status.set_slug)
+                        item.setData(Qt.UserRole + 1, part.slug)
                         if part.missing == 0:
                             item.setForeground(QColor(C_GREEN))
                         elif part.owned > 0:
@@ -4335,6 +5287,8 @@ class MasteryListPage(QWidget):
         self._busy = False
         self.add_button.setEnabled(True)
         self.reload()
+        if self.items_changed is not None:
+            self.items_changed()   # Item List shows a star for items on this list
         self._notify(message, status)
 
     def _remove_selected(self):
@@ -4346,7 +5300,49 @@ class MasteryListPage(QWidget):
         slug = item.data(Qt.UserRole)
         if self.mastery.remove(slug):
             self.reload()
+            if self.items_changed is not None:
+                self.items_changed()
             self._notify("Set removed from your mastery list.", "info")
+
+    def _remove_selected_part(self):
+        row = self.table.currentRow()
+        item = self.table.item(row, 1) if row >= 0 else None
+        slug = item.data(Qt.UserRole + 1) if item is not None else None
+        if not slug:
+            self._notify("Select the part row you do not own first.", "warning")
+            return
+        if self.store.items.get(slug) is None or self.store.items[slug].quantity <= 0:
+            self._notify(f"{item.text()} is not counted as owned.", "info")
+            return
+        answer = QMessageBox.question(
+            self,
+            "Not owned?",
+            f"Stop counting {item.text()} as owned?\n\n"
+            "This only changes Parallel. It does not touch your warframe.market listings.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.store.remove_items([slug])
+        self.reload()
+        if self.items_changed is not None:
+            self.items_changed()
+        self._notify(f"{item.text()} removed from the items you own.", "info")
+
+    def _watch_missing(self):
+        owned = self._owned()
+        row = self.table.currentRow()
+        item = self.table.item(row, 0) if row >= 0 else None
+        statuses = self._statuses()
+        if item is not None:
+            statuses = [s for s in statuses if s.set_slug == item.data(Qt.UserRole)]
+        wanted = {part.slug: part.name for s in statuses for part in s.missing_parts}
+        if not wanted:
+            self._notify("Nothing is missing for that set.", "info")
+            return
+        if self.add_to_watchlist is not None:
+            self.add_to_watchlist(sorted(wanted.items(), key=lambda kv: kv[1]))
 
     def _copy_shopping_list(self):
         lines = []
@@ -4436,7 +5432,6 @@ class ArcanesPage(QWidget):
         )
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         _prepare_table(self.table, [42, 280, 90, 90, 90, 120, 150, 120], stretch_column=1)
-        self.table.setColumnHidden(2, True)   # rank is tracked internally; the page only shows counts
         layout.addWidget(self.table, 1)
 
         footer_frame = QFrame()
@@ -4506,7 +5501,7 @@ class ArcanesPage(QWidget):
             self.table.setItem(row, 1, name)
             max_rank = info.max_rank if info else 0
             rank_text = f"{stock_row.rank} (max)" if max_rank and stock_row.rank == max_rank else str(stock_row.rank)
-            self.table.setItem(row, 2, _table_item(rank_text, mono=True))
+            self.table.setItem(row, 2, _table_item(rank_text, mono=True))   # prices/listings below are per rank
             self.table.setItem(row, 3, _table_item(stock_row.quantity, mono=True))
             for column in (4, 5, 6):
                 self.table.setItem(row, column, _table_item("—", mono=True))
@@ -4568,7 +5563,7 @@ class ArcanesPage(QWidget):
         return partial[0] if len(partial) == 1 else None
 
     def _add_stock(self):
-        """Arcanes are priced and listed as single, unranked copies. Max-rank ones are listed by hand."""
+        """Typed-in copies are unranked (rank 0); the ARCANES-screen scan adds the real ranks."""
         slug = self._resolve(self.name_input.text())
         if slug is None:
             self._notify("Pick an arcane from the suggestions (name not found or not unique).", "warning")
@@ -4665,7 +5660,10 @@ class ArcanesPage(QWidget):
         for stock_row, info, price in plan:
             existing = self.listings.get(ranked_key(stock_row.slug, stock_row.rank))
             verb = "Update" if existing is not None else "Create"
-            lines.append(f"{verb}: {stock_row.quantity}x {info.name if info else stock_row.slug} @ {price}p")
+            lines.append(
+                f"{verb}: {stock_row.quantity}x {info.name if info else stock_row.slug} "
+                f"(rank {stock_row.rank}) @ {price}p"
+            )
         if QMessageBox.question(
             self, "List arcanes on warframe.market",
             "This will change your live market listings:\n\n" + "\n".join(lines) + "\n\nContinue?",
@@ -4794,9 +5792,13 @@ class Dashboard(QMainWindow):
         on_hotkeys_changed: Callable[[], None] | None = None,
         on_ocr_changed: Callable[[], None] | None = None,
         get_api: Callable[[], object] | None = None,
+        on_sell_items: Callable[[list[str]], None] | None = None,
+        on_combine_set: Callable[[str], None] | None = None,
     ):
         super().__init__()
         self.store = store
+        self.on_sell_items = on_sell_items
+        self.on_combine_set = on_combine_set
         self.get_api = get_api or (lambda: None)
         self.on_refresh = on_refresh
         self.on_update_prices = on_update_prices
@@ -4855,8 +5857,8 @@ class Dashboard(QMainWindow):
         content = QWidget()
         outer.addWidget(content, 1)
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(16, 12, 16, 14)
-        layout.setSpacing(12)
+        layout.setContentsMargins(16, 8, 16, 14)
+        layout.setSpacing(8)
         self._responsive_bars = []
 
         def toolbar_group():
@@ -4877,16 +5879,28 @@ class Dashboard(QMainWindow):
         brand.setProperty("sidro_icon", "brand")
         brand.setFixedSize(44, 50)
         brand.setPixmap(_ui_icon("brand", C_GOLD).pixmap(44, 50))
-        self.tabs.brand_slot.addWidget(brand)
         brand_text = QVBoxLayout()
         brand_text.setSpacing(0)
-        title = QLabel(" ".join(config.APP_NAME.upper()))
+        title = QLabel(config.APP_NAME.upper())
         title.setObjectName("BrandTitle")
+        title_font = title.font()
+        title_font.setLetterSpacing(QFont.AbsoluteSpacing, 3)
+        title.setFont(title_font)
+        title.setStyleSheet("font-size: 17px;")
         subtitle = QLabel("WARFRAME TRADING COMPANION")
         subtitle.setObjectName("BrandSubtitle")
+        subtitle.setWordWrap(True)
+        subtitle.setStyleSheet("font-size: 9px;")
         brand_text.addWidget(title)
         brand_text.addWidget(subtitle)
-        header.addLayout(brand_text)
+        brand_text.addStretch()
+        brand_row = QWidget()
+        brand_layout = QHBoxLayout(brand_row)
+        brand_layout.setContentsMargins(0, 0, 0, 0)
+        brand_layout.setSpacing(8)
+        brand_layout.addWidget(brand)
+        brand_layout.addLayout(brand_text, 1)
+        self.tabs.brand_slot.addWidget(brand_row)
         header.addStretch()
         caption = QWidget()
         caption_layout = QHBoxLayout(caption)
@@ -4909,46 +5923,45 @@ class Dashboard(QMainWindow):
         header.addWidget(caption, 0, Qt.AlignTop)
         layout.addWidget(self.window_header)
 
-        controls_frame = QFrame()
-        controls_frame.setObjectName("Toolbar")
-        controls_bar = QBoxLayout(QBoxLayout.LeftToRight, controls_frame)
-        controls_bar.setContentsMargins(8, 8, 8, 8)
-        controls_bar.setSpacing(12)
-        primary_group, primary_controls = toolbar_group()
-        utility_group, utility_controls = toolbar_group()
-        controls_bar.addWidget(primary_group)
-        controls_bar.addStretch()
-        controls_bar.addWidget(utility_group)
-        self._responsive_bars.append((controls_bar, primary_group, utility_group))
         self.login_button = None
-        control_specs = [
-            ("Scanner Help", self._scanner_help, C_BG3),
-            ("Trade Chat", self._trade_chat, C_BG3),
-            ("Recruitment Chat", self._recruitment_chat, C_BG3),
-            ("Refresh WFM profile", self._refresh, C_BLUE),
-            ("Settings", self._settings, C_BG3),
-        ]
-        if not getattr(config, "WFM_TOKEN", ""):
-            control_specs.insert(3, ("Login / Token", self._token, C_BG3))
-        for text, fn, color in control_specs:
-            btn = _button(text, color, C_BG if color == C_GOLD else C_TEXT)
-            btn.clicked.connect(fn)
-            controls = primary_controls if text in {"Scanner Help", "Trade Chat", "Recruitment Chat", "Login / Token"} else utility_controls
-            controls.addWidget(btn)
-            if text == "Login / Token":
-                self.login_button = btn
+        rail_tools = self.tabs.tools_slot
+        rail_account = self.tabs.account_slot
+
+        def rail_button(text, callback, color=C_BG3):
+            btn = _button(text, color, C_TEXT)
+            btn.clicked.connect(callback)
+            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            return btn
+
+        for text, callback in (
+            ("Scanner Help", self._scanner_help),
+            ("Trade Chat", self._trade_chat),
+            ("Recruitment Chat", self._recruitment_chat),
+            ("Settings", self._settings),
+        ):
+            rail_tools.addWidget(rail_button(text, callback))
         self.reward_queue_button = _button("Review rewards (0)", C_GREEN, "white")
         self.reward_queue_button.setEnabled(False)
+        self.reward_queue_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.reward_queue_button.clicked.connect(lambda _checked=False: self.on_review_rewards())
-        utility_controls.addWidget(self.reward_queue_button)
+        rail_tools.addWidget(self.reward_queue_button)
+
+        if not getattr(config, "WFM_TOKEN", ""):
+            self.login_button = rail_button("Login / Token", self._token)
+            rail_account.addWidget(self.login_button)
+        rail_account.addWidget(rail_button("Refresh WFM profile", self._refresh, C_BLUE))
         self.ocr_warmup_button = _button("Load OCRs", C_GREEN, "white")
+        self.ocr_warmup_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.ocr_warmup_button.setToolTip(
             f"Load configured OCR engines, or unload them to release memory ({config.HOTKEY_OCR_WARMUP})"
         )
         self.ocr_warmup_button.clicked.connect(lambda _checked=False: self.on_ocr_warmup())
+        rail_account.addWidget(self.ocr_warmup_button)
+        # The "Loaded: ..." text is now a one-time notification (see set_ocr_load_state).
         self.ocr_warmup_status = QLabel("")
-        self.ocr_warmup_status.setObjectName("Muted")
+        self.ocr_warmup_status.hide()
         self.set_ocr_load_state(False, "OCR engines are unloaded")
+
         self.reward_check = _StyledCheckBox("Void Fissure Scanning")
         config.REWARD_PRICE_CHECK_ENABLED = False
         self.reward_check.setChecked(False)
@@ -4956,28 +5969,12 @@ class Dashboard(QMainWindow):
         self.trade_scan_check = _StyledCheckBox("Live Trade Scanning")
         self.trade_scan_check.setChecked(False)
         self.trade_scan_check.toggled.connect(self._set_trade_scan_enabled)
+        # Log viewing moved to Settings; this hidden box keeps the logic in one place.
         self.log_check = _StyledCheckBox("Enable log viewing")
         self.log_check.toggled.connect(self._set_log_viewing)
-        layout.addWidget(controls_frame)
-
-        options_frame = QFrame()
-        options_frame.setObjectName("Toolbar")
-        options = QHBoxLayout(options_frame)
-        options.setContentsMargins(14, 9, 14, 9)
-        options.setSpacing(20)
-        options.addWidget(self._side_text("Background tools"))
-        tools_divider = QFrame()
-        tools_divider.setObjectName("Divider")
-        tools_divider.setFixedSize(1, 24)
-        options.addWidget(tools_divider)
-        options.addWidget(self.reward_check)
-        options.addWidget(self.trade_scan_check)
-        options.addWidget(self.ocr_warmup_button)
-        options.addWidget(self.ocr_warmup_status)
-        options.addWidget(self.log_check)
-        options.addStretch()
-        layout.addWidget(options_frame)
-
+        self.log_check.hide()
+        header.insertWidget(0, self.reward_check)
+        header.insertWidget(1, self.trade_scan_check)
         layout.addWidget(self.tabs.stack, 1)
 
         inventory_tab = QWidget()
@@ -5078,11 +6075,11 @@ class Dashboard(QMainWindow):
         footer.addWidget(update)
         inventory_layout.addWidget(footer_frame)
 
-        self.tabs.addTab(inventory_tab, "inventory", "Inventory Management")
+        self.tabs.addTab(inventory_tab, "inventory", "Trading Post")
         self.owned_inventory = OwnedInventoryPage(
             self.store, lambda message, status, ms: self._notify(message, status, ms)
         )
-        self.owned_tab_index = self.tabs.addTab(self.owned_inventory, "sets", "My Items & Sets")
+        self.owned_tab_index = self.tabs.addTab(self.owned_inventory, "sets", "Item List")
         self.mastery_page = MasteryListPage(
             self.store, self.owned_inventory.catalog, lambda message, status="info", ms=3500: self._notify(message, status, ms)
         )
@@ -5091,7 +6088,24 @@ class Dashboard(QMainWindow):
             lambda: self.get_api(), lambda message, status="info", ms=3500: self._notify(message, status, ms)
         )
         self.arcanes_tab_index = self.tabs.addTab(self.arcanes_page, "arcane", "Arcanes")
+        from trading_tools_ui import TradingToolsPage   # imported late: it imports this module
+        self.trading_page = TradingToolsPage(
+            self.store, lambda: self.get_api(), lambda message, status="info", ms=3500: self._notify(message, status, ms)
+        )
+        self.trading_tab_index = self.tabs.addTab(self.trading_page, "trade", "Trading Tools")
+        self.owned_inventory.get_api = lambda: self.get_api()
+        self.owned_inventory.combine_set = self.on_combine_set
+        self.owned_inventory.update_listings = lambda updates: self.on_update_prices(updates, self._strategy())
+        self.owned_inventory.add_to_watchlist = self._send_to_watchlist
+        self.mastery_page.add_to_watchlist = self._send_to_watchlist
         self.owned_inventory.add_to_mastery = self.mastery_page.add_set_slug
+        self.owned_inventory.sell_items = self.on_sell_items
+        self.owned_inventory.refresh_listings = self.on_refresh
+        self.owned_inventory.delete_listings = self.on_delete_listings
+        self.owned_inventory.mastery_slugs = lambda: set(self.mastery_page.mastery.slugs)
+        self.owned_inventory.reload()
+        self.owned_inventory.items_changed = self.mastery_page.reload
+        self.mastery_page.items_changed = self.owned_inventory.reload
         self.tabs.currentChanged.connect(self._on_dashboard_tab_changed)
         self._update_connection_status()
         all_visible = _button("Show all", C_BG3, C_TEXT)
@@ -5185,6 +6199,13 @@ class Dashboard(QMainWindow):
         _refresh_themed_button(button)
         if status is not None and hasattr(self, "ocr_warmup_status"):
             self.ocr_warmup_status.setText(status)
+        was_loaded = bool(getattr(self, "_ocr_was_loaded", False))
+        self._ocr_was_loaded = bool(loaded)
+        if loaded and not was_loaded:
+            try:   # one-time heads-up instead of a permanent label
+                self._notify(f"OCR engines are ready. {status or ''}".strip(), "success", 4000)
+            except Exception as e:
+                print(f"[UI] OCR ready notice skipped: {e}")
 
     def _feature_info(self, title: str, body: str):
         QMessageBox.information(self, title, body)
@@ -5376,6 +6397,12 @@ class Dashboard(QMainWindow):
             self.owned_inventory.reload()
             self.mastery_page.reload()
 
+    def _send_to_watchlist(self, items: list[tuple[str, str]]):
+        """Open Trading Tools, Watchlist and add items sent from the Item List or Mastery List."""
+        self.tabs.setCurrentIndex(self.trading_tab_index)
+        self.trading_page.tabs.setCurrentWidget(self.trading_page.watchlist)
+        self.trading_page.watchlist.add_from_pages(items)
+
     def _on_dashboard_tab_changed(self, index: int):
         if index == getattr(self, "owned_tab_index", -1):
             self.owned_inventory.reload()
@@ -5384,6 +6411,8 @@ class Dashboard(QMainWindow):
             self.mastery_page.reload()
         elif index == getattr(self, "arcanes_tab_index", -1):
             self.arcanes_page.on_shown()
+        elif index == getattr(self, "trading_tab_index", -1):
+            self.trading_page.on_shown()
 
     def _filter_inventory_rows(self, query: str):
         query = str(query or "").strip().casefold()
@@ -5729,50 +6758,147 @@ class Dashboard(QMainWindow):
             rows.append((row, header.text()))
         return rows
 
+    def _confirm_delete(self, title: str, text: str, urls: list[str] | None = None) -> tuple[bool, bool, dict]:
+        """Ask before deleting listings.
+
+        Returns (confirmed, also_forget_items, sales) where ``sales`` maps url -> (name, quantity, total
+        platinum) for the items the user says were sold.
+        """
+        answer = QMessageBox.question(
+            self,
+            title,
+            text,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return False, False, {}
+        entries = []
+        for url in urls or []:
+            listing = self.store.listings.get(url)
+            quantity = int(listing.quantity) if listing is not None else 1
+            total = int(listing.platinum) * quantity if listing is not None else 0
+            entries.append((url, self.store.display_name(url), quantity, total))
+        sold = _ask_sold(self, entries)
+        if sold:
+            return True, True, {slug: (name, qty, plat) for slug, name, qty, plat in sold}
+        forget = QMessageBox.question(
+            self,
+            "Remove from Item List too?",
+            "Also remove these from the Item List?\n\n"
+            "Choose Yes if they were sold or you no longer have them. "
+            "Choose No to keep them in your item list.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        return True, forget == QMessageBox.StandardButton.Yes, {}
+
+    def _split_partial(self, urls: list[str], sales: dict | None) -> tuple[list[str], dict[str, int]]:
+        """Split urls into listings to delete and listings to lower (sold fewer than the listing holds)."""
+        reduce: dict[str, int] = {}
+        for url in urls:
+            sale = (sales or {}).get(url)
+            listing = self.store.listings.get(url)
+            if sale and listing is not None and int(sale[1]) < int(listing.quantity):
+                reduce[url] = int(listing.quantity) - int(sale[1])
+        return [url for url in urls if url not in reduce], reduce
+
+    def _delete_and_forget(
+        self, delete: Callable[[], str], urls: list[str], forget: bool, sales: dict | None = None,
+        reduce: dict[str, int] | None = None,
+    ) -> Callable[[], str]:
+        """Wrap a delete action so the items of deleted listings also leave the Item List.
+
+        ``reduce`` maps url -> quantity to leave on the listing: those listings are lowered, not deleted.
+        """
+        def action() -> str:
+            notes = []
+            if reduce:
+                updates = {}
+                for url, remaining in reduce.items():
+                    listing = self.store.listings.get(url)
+                    if listing is not None:
+                        updates[url] = {"price": listing.platinum, "quantity": remaining, "visible": listing.visible}
+                notes.append(self.on_update_prices(updates, self._strategy()))
+                for url, remaining in reduce.items():
+                    listing = self.store.listings.get(url)
+                    if (sales or {}).get(url) and listing is not None and int(listing.quantity) == remaining:
+                        name, quantity, platinum = sales[url]
+                        self.store.add_sale(url, name, quantity, platinum, take_from_items=True)
+            message = delete() if urls else ""
+            if notes:
+                message = " ".join(n for n in (*notes, message) if n)
+            if forget and urls:
+                # The delete refreshes the listings from the market, so anything no
+                # longer listed was really deleted.
+                gone = [url for url in urls if url not in self.store.listings]
+                for url in list(gone):
+                    if url in (sales or {}):   # only listings that really went are logged as sold
+                        name, quantity, platinum = sales[url]
+                        owned = int(self.store.items[url].quantity) if url in self.store.items else quantity
+                        if quantity < owned:   # sold only some: keep the rest on the Item List
+                            self.store.add_sale(url, name, quantity, platinum, take_from_items=True)
+                            gone.remove(url)
+                        else:
+                            self.store.add_sale(url, name, quantity, platinum)
+                removed = self.store.remove_items(gone)
+                if removed:
+                    message += f" Removed {removed} from the Item List."
+            return message
+        return action
+
     def _delete_selected(self):
         selected = [url for _row, url in self._selected_rows()]
         if not selected:
             self.summary.setText("No rows selected.")
             return
-        answer = QMessageBox.question(
-            self,
+        confirmed, forget, sales = self._confirm_delete(
             "Delete selected listings?",
             f"This will permanently delete {len(selected)} selected warframe.market sell listing(s). Continue?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
+            selected,
         )
-        if answer != QMessageBox.StandardButton.Yes:
+        if not confirmed:
             return
-        self._run_background(lambda: self.on_delete_listings(selected), reload_rows=True)
+        to_delete, reduce = self._split_partial(selected, sales)
+        self._run_background(
+            self._delete_and_forget(lambda: self.on_delete_listings(to_delete), to_delete, forget, sales, reduce),
+            reload_rows=True,
+        )
 
     def _delete_all(self):
         count = self.table.rowCount()
         if count <= 0:
             self.summary.setText("No listings to delete.")
             return
-        answer = QMessageBox.question(
-            self,
+        urls = list(self.store.listings)
+        confirmed, forget, sales = self._confirm_delete(
             "Delete all listings?",
             f"This will permanently delete all {count} current warframe.market sell listings. Continue?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
+            urls,
         )
-        if answer != QMessageBox.StandardButton.Yes:
+        if not confirmed:
             return
-        self._run_background(self.on_delete_all_listings, reload_rows=True)
+        to_delete, reduce = self._split_partial(urls, sales)
+        delete_action = self.on_delete_all_listings if not reduce else (lambda: self.on_delete_listings(to_delete))
+        self._run_background(
+            self._delete_and_forget(delete_action, to_delete, forget, sales, reduce),
+            reload_rows=True,
+        )
 
     def _delete_one(self, url_name: str):
         display_name = self.store.display_name(url_name)
-        answer = QMessageBox.question(
-            self,
+        confirmed, forget, sales = self._confirm_delete(
             "Delete listing?",
             f"Permanently delete this warframe.market sell listing?\n\n{display_name}",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
+            [url_name],
         )
-        if answer != QMessageBox.StandardButton.Yes:
+        if not confirmed:
             return
-        self._run_background(lambda: self.on_delete_listing(url_name), reload_rows=True)
+        to_delete, reduce = self._split_partial([url_name], sales)
+        self._run_background(
+            self._delete_and_forget(lambda: self.on_delete_listing(url_name), to_delete, forget, sales, reduce),
+            reload_rows=True,
+        )
 
 
 class UIController:
@@ -6086,10 +7212,36 @@ class UIController:
             for tag in self.reward_tags:
                 tag.close()
             self.reward_tags = []
+            style = str(getattr(config, "REWARD_OWNED_STYLE", "cards"))
+            card_tags = getattr(self, "reward_card_tags", None)
+            panel = getattr(self, "reward_panel", None)
+            if style == "cards":
+                if panel is not None:
+                    panel.hide()
+                if card_tags is None:
+                    card_tags = self.reward_card_tags = RewardCardTags()
+                card_tags.update(rewards, display_ms)
+                return
+            if card_tags is not None:
+                card_tags.hide()
+            if style == "panel":
+                if panel is None:
+                    panel = self.reward_panel = RewardRankPanel()
+                panel.update_rows(rewards, display_ms)
+                return
+            if panel is not None:
+                panel.hide()
             # Card rects are capture pixels; Qt positions windows in scaled units.
             screen = QGuiApplication.primaryScreen()
             ratio = max(0.1, screen.devicePixelRatio())
             origin = screen.geometry().topLeft()
+            # Tags must not be wider than the gap between neighbouring cards, or they
+            # cut each other's text off.
+            card_xs = sorted(origin.x() + reward["card_rect"][0] / ratio for reward in rewards)
+            gaps = [b - a for a, b in zip(card_xs, card_xs[1:]) if b - a > 20]
+            slot = int(min(gaps)) - 6 if gaps else 10_000
+            price_w = max(120, min(190, slot))
+            panel_w = max(120, min(220, slot))
             for reward in rewards:
                 x, y, w, _h = reward["card_rect"]
                 x = origin.x() + x / ratio
@@ -6097,12 +7249,14 @@ class UIController:
                 w = w / ratio
                 base_card_w = float(getattr(config, "REWARD_CARD_RECTS", [(0, 0, 240, 240)])[0][2])
                 scale = max(0.1, float(w) / base_card_w)
-                tag_x = int(x + (w / 2) - (95 * scale))
+                tag_x = int(x + (w / 2) - (price_w / 2))
                 if getattr(config, "REWARD_PRICE_TAG_POSITION", "above") == "above":
                     tag_y = max(0, int(y - (84 * scale)))
                 else:
                     fixed_tag_y = getattr(config, "REWARD_PRICE_TAG_Y", None)
                     tag_y = int((y + 238 * scale) if fixed_tag_y is None else fixed_tag_y * scale)
+                owned = reward.get("owned")
+                owned_style = str(getattr(config, "REWARD_OWNED_STYLE", "inline"))
                 tag = RewardPriceTag(
                     reward["display_name"],
                     reward.get("price"),
@@ -6110,14 +7264,31 @@ class UIController:
                     tag_x,
                     tag_y,
                     display_ms,
+                    owned=owned if owned_style != "list" else None,
+                    width=price_w,
+                    vaulted=bool(reward.get("vaulted")),
+                    trend=reward.get("trend"),
                 )
                 tag.show()
                 self.reward_tags.append(tag)
+                below = int(y + getattr(config, "REWARD_ALTERNATE_TAG_Y_OFFSET", 410) * scale)
+                if owned and owned_style == "list":
+                    set_tag = RewardSetTag(
+                        owned,
+                        int(x + (w / 2) - (panel_w / 2)),
+                        int(y + 356 * scale),
+                        display_ms,
+                        width=panel_w,
+                    )
+                    set_tag.show()
+                    self.reward_tags.append(set_tag)
+                    # Keep "Other reads" under the set box instead of overlapping it.
+                    below = max(below, set_tag.y() + set_tag.height() + 8)
                 alternates = list(reward.get("alternates") or [])
                 if alternates and getattr(config, "REWARD_ALTERNATE_TAG_ENABLED", True):
-                    alt_x = int(x + (w / 2) - (115 * scale))
-                    alt_y = int(y + getattr(config, "REWARD_ALTERNATE_TAG_Y_OFFSET", 410) * scale)
-                    alt_tag = RewardAlternateTag(alternates, alt_x, alt_y, display_ms)
+                    alt_x = int(x + (w / 2) - (panel_w / 2))
+                    alt_y = below
+                    alt_tag = RewardAlternateTag(alternates, alt_x, alt_y, display_ms, width=panel_w)
                     alt_tag.show()
                     self.reward_tags.append(alt_tag)
 

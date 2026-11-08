@@ -34,6 +34,9 @@ class UIReleaseTests(unittest.TestCase):
         self.addCleanup(self.messages.stop)
         self.questions = patch.object(self.ui.QMessageBox, "question", return_value=self.ui.QMessageBox.Yes)
         self.questions.start()
+        sold = patch.object(self.ui, "_ask_sold", return_value=[])
+        sold.start()
+        self.addCleanup(sold.stop)
         self.addCleanup(self.questions.stop)
 
     def wait_for(self, predicate, timeout=5):
@@ -390,6 +393,27 @@ class UIReleaseTests(unittest.TestCase):
         self.assertEqual(dialog.removed_queued_rewards, {})
         store.load()
         self.assertEqual(store.get_reward_queue()["test_prime"]["quantity"], 2)
+
+    def test_skip_listing_tick_keeps_the_reward_off_the_market(self):
+        from pillar3_api import PriceInfo
+        store = self.store()
+        store.queue_reward("skip_prime", "Skip Prime")
+        store.queue_reward("list_prime", "List Prime")
+        items = [
+            SimpleNamespace(url_name=url, display_name=name, quantity=1, _queued_reward_quantity=1,
+                            _reward_existing_quantity=0, grid_position=(0, 0))
+            for url, name in (("skip_prime", "Skip Prime"), ("list_prime", "List Prime"))
+        ]
+        prices = {i.url_name: PriceInfo(i.url_name, 10, 10.0, 3, 10, []) for i in items}
+        dialog = self.ui.InventoryReviewDialog(items, prices, queued_reward_rows=list(store.get_reward_queue().values()))
+        self.addCleanup(dialog.deleteLater)
+        for row in range(dialog.table.rowCount()):
+            url = dialog.table.verticalHeaderItem(row).text()
+            dialog.table.cellWidget(row, 0).setChecked(True)               # List ticked on both
+            dialog.table.cellWidget(row, 9).setChecked(url == "skip_prime")  # Skip listing on one
+        dialog._confirm()
+        self.assertEqual([i.url_name for i in dialog.selected_items], ["list_prime"])
+        self.assertEqual(list(dialog.removed_queued_rewards), ["skip_prime"])
 
     def test_queue_snapshot_removal_preserves_new_rewards_and_restart(self):
         store = self.store()

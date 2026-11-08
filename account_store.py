@@ -116,6 +116,7 @@ class AccountStore:
                 "display_name": str(row.get("display_name") or ""),
                 "count": max(1, int(row.get("count") or 1)),
                 "at": float(row.get("at") or 0),
+                "platinum": max(0, int(row.get("platinum") or 0)),
             }
             for row in raw_sales
             if isinstance(row, dict) and row.get("url_name")
@@ -187,6 +188,36 @@ class AccountStore:
             changed = True
         if changed:
             self.save()
+
+    @_synchronized
+    def remove_items(self, url_names: Iterable[str]) -> int:
+        """Forget items Parallel wrongly thinks you own. Local only: market listings are untouched."""
+        removed = 0
+        for url in set(url_names):
+            if self.items.pop(url, None) is not None:
+                removed += 1
+        if removed:
+            self.save()
+        return removed
+
+    @_synchronized
+    def set_item(self, old_url_name: str | None, url_name: str, display_name: str, quantity: int):
+        """Add an item by hand, or correct one the scanner got wrong (name and/or quantity)."""
+        if not url_name:
+            return
+        quantity = max(1, int(quantity))
+        old = self.items.get(old_url_name) if old_url_name else None
+        item_id = old.item_id if old is not None and old_url_name == url_name else ""
+        if old is not None and old_url_name != url_name:
+            del self.items[old_url_name]
+        self.items[url_name] = StoredItem(
+            display_name=display_name or _title_from_slug(url_name),
+            url_name=url_name,
+            quantity=quantity,
+            item_id=item_id or (self.items[url_name].item_id if url_name in self.items else ""),
+            last_seen=time.time(),
+        )
+        self.save()
 
     @_synchronized
     def increment_inventory_item(
@@ -372,13 +403,15 @@ class AccountStore:
             self.save()
 
     @_synchronized
-    def decrement_after_trade(self, url_name: str, count: int = 1):
+    def decrement_after_trade(self, url_name: str, count: int = 1, platinum: int = 0):
+        """Record a sale. ``platinum`` is the whole sale (listing price x count), 0 if unknown."""
         count = max(1, int(count))
         self.sales.append({
             "url_name": url_name,
             "display_name": self.display_name(url_name),
             "count": count,
             "at": time.time(),
+            "platinum": max(0, int(platinum or 0)),
         })
         del self.sales[:-MAX_SALES]
         if url_name in self.items:
@@ -392,6 +425,41 @@ class AccountStore:
                 self.listings[url_name].quantity = remaining
                 self.listings[url_name].last_synced = time.time()
         self.save()
+
+    @_synchronized
+    def add_sale(
+        self, url_name: str, display_name: str, count: int, platinum: int,
+        at: float | None = None, take_from_items: bool = False,
+    ):
+        """Record a sale by hand (e.g. one the trade monitor missed).
+
+        With ``take_from_items`` the quantity is also removed from the Item List.
+        Warframe.market listings are never touched.
+        """
+        count = max(1, int(count))
+        self.sales.append({
+            "url_name": url_name,
+            "display_name": display_name or self.display_name(url_name),
+            "count": count,
+            "at": float(at if at is not None else time.time()),
+            "platinum": max(0, int(platinum or 0)),
+        })
+        self.sales.sort(key=lambda row: float(row.get("at") or 0))
+        del self.sales[:-MAX_SALES]
+        if take_from_items and url_name in self.items:
+            self.items[url_name].quantity = max(0, self.items[url_name].quantity - count)
+            self.items[url_name].last_seen = time.time()
+        self.save()
+
+    @_synchronized
+    def delete_sale(self, sale: dict) -> bool:
+        """Remove one entry from the sales log (matched by identity or by its fields)."""
+        for index, row in enumerate(self.sales):
+            if row is sale or row == sale:
+                del self.sales[index]
+                self.save()
+                return True
+        return False
 
     @_synchronized
     def listed_match_candidates(self) -> dict[str, str]:

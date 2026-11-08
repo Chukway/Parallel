@@ -265,7 +265,26 @@ INVENTORY_CARD_STRIDE_Y = 222       # distance between card top edges
 INVENTORY_LABEL_Y_OFFSET = 108      # high enough for three-line Warframe part labels
 INVENTORY_LABEL_HEIGHT = 82         # label crop ends at the card bottom
 INVENTORY_LABEL_X_PAD = 0           # widen/narrow label crop inside the card
-INVENTORY_BADGE_SCALE = 4.0         # Quantity digits are tiny; keep this modest
+ARCANE_LABEL_Y_OFFSET = 118         # Arcane name strip (1080p base units): below the art, above the rank diamonds
+ARCANE_LABEL_HEIGHT = 48            # GUESSED from one 2880x1800 screenshot; validate on a real capture
+# Arcane COLLECTION screen (Warframe's ARCANES screen: one tile per copy, no count badge, rank = filled diamonds).
+# Geometry is measured on a 2000x1250 (16:10) capture and stored as fractions of the full screen
+# (x of width, y of height) so it scales with resolution. Tile fractions are of the tile itself.
+ARCANE_SCAN_LAYOUT = "auto"            # "auto" detects the screen, or force "collection" / "sell"
+ARCANE_GRID_COLS = 5
+ARCANE_GRID_ROWS = 4                   # fully visible rows on the collection screen
+ARCANE_GRID_ORIGIN = (0.0500, 0.1656)  # (left, top) of the first tile, fraction of screen (w, h)
+ARCANE_GRID_STRIDE = (0.1125, 0.2024)  # distance between tile left / top edges
+ARCANE_TILE_SIZE = (0.0885, 0.1408)    # tile width / height
+ARCANE_TILE_NAME_Y = (0.585, 0.852)    # name strip inside a tile (top, bottom), above the diamonds
+ARCANE_TILE_DIAMOND_Y = 0.909          # vertical centre of the diamond row inside a tile
+ARCANE_DIAMOND_PITCH = 0.1215          # distance between diamond centres, fraction of tile width
+ARCANE_DIAMOND_COUNT = 5               # diamonds under each tile = max rank
+ARCANE_RANK_PATCH = 0.0113             # half-size of the centre patch read in each diamond (tile width)
+ARCANE_RANK_FILLED_MIN_GRAY = 70       # centre patch mean gray: filled ~130-150, hollow ~20
+ARCANE_RANK_RING_MIN_GRAY = 40         # diamond box 95th percentile: outline present ~60+, bare tile ~13
+ARCANE_RANK_MIN_RINGS = 4              # diamonds that must show an outline for a tile to count as a card
+INVENTORY_BADGE_SCALE = 4.0        # Quantity digits are tiny; keep this modest
 
 # ─────────────────────────────────────────────
 # OCR SETTINGS
@@ -421,6 +440,7 @@ DUCAT_BULK_PLAT_VALUES = {
 HOTKEY_SCAN = "ctrl+shift+s"          # Select one item with Windows Snipping Tool
 HOTKEY_INVENTORY_SCAN = "ctrl+shift+i" # Inventory/Sell batch scan  ← PRIMARY
 HOTKEY_INVENTORY_BOTTOM_SCAN = "ctrl+shift+b" # Inventory/Sell final visible row scan
+HOTKEY_ARCANE_SCAN = "ctrl+shift+a"    # Inventory/Sell > Arcanes: read names, ranks and counts (ARCANES screen or Sell tab)
 HOTKEY_TRADE_MONITOR = "ctrl+shift+t"  # Trading post sold-item monitor
 HOTKEY_ACCOUNT_UI = "ctrl+shift+m"     # Local inventory/listing manager
 HOTKEY_REWARD_SCAN = "ctrl+shift+r"    # Void Fissure reward price overlay
@@ -538,6 +558,9 @@ ALERT_SOUND_VOLUME = 0.45        # 0.0 - 1.0 for generated alert WAVs
 ALERT_SOUND_CUSTOM_PATH = ""
 VISUAL_NOTIFICATIONS_ENABLED = True
 NOTIFICATION_CORNER = "top_left" # top_left | top_right | bottom_left | bottom_right
+REWARD_MARKET_HINTS = True       # show a vaulted "V" and a price-direction arrow on the reward overlay
+REWARD_OWNED_STYLE = "cards"     # cards: plat/ducats above each card, number + set below | panel: ranked list in the top-left corner | inline: "Own 2/4" beside the price | list: set parts under each reward
+REWARD_RANK_BY = "plat"          # panel order: plat | ducats
 SIDRO_NOTIFICATION_MASCOT = False
 SIDRO_VISUAL_CHARACTER = "robot" # robot | maid
 SIDRO_WELCOME_VISUAL_FREQUENCY = "once_a_day" # once_a_day | every_launch | never
@@ -565,6 +588,8 @@ if APP_SETTINGS_PATH.exists():
             _settings.get("visual_notifications_enabled", VISUAL_NOTIFICATIONS_ENABLED)
         )
         NOTIFICATION_CORNER = str(_settings.get("notification_corner", NOTIFICATION_CORNER))
+        REWARD_OWNED_STYLE = str(_settings.get("reward_owned_style", REWARD_OWNED_STYLE))
+        REWARD_RANK_BY = str(_settings.get("reward_rank_by", REWARD_RANK_BY))
         SIDRO_NOTIFICATION_MASCOT = bool(
             _settings.get("sidro_notification_mascot", SIDRO_NOTIFICATION_MASCOT)
         )
@@ -650,6 +675,7 @@ if APP_SETTINGS_PATH.exists():
         HOTKEY_INVENTORY_BOTTOM_SCAN = str(
             _hotkeys.get("inventory_bottom_scan", HOTKEY_INVENTORY_BOTTOM_SCAN)
         )
+        HOTKEY_ARCANE_SCAN = str(_hotkeys.get("arcane_scan", HOTKEY_ARCANE_SCAN))
         HOTKEY_TRADE_MONITOR = str(_hotkeys.get("trade_monitor", HOTKEY_TRADE_MONITOR))
         HOTKEY_ACCOUNT_UI = str(_hotkeys.get("account_ui", HOTKEY_ACCOUNT_UI))
         HOTKEY_REWARD_SCAN = str(_hotkeys.get("reward_scan", HOTKEY_REWARD_SCAN))
