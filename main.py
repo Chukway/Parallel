@@ -545,6 +545,8 @@ class App:
         Steps: pick the set price in the normal review window, show what will change on
         warframe.market, then post the set and lower or delete the part listings.
         """
+        from PySide6.QtWidgets import QMessageBox
+
         if self.api is None:
             self.ui.toast("❌ Not authenticated. Sign in first (Login / Token).", "error")
             return
