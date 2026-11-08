@@ -4834,6 +4834,10 @@ class OwnedInventoryPage(QWidget):
                 row = self.table.rowCount()
                 self.table.insertRow(row)
                 is_listed = listing is not None and listing.quantity > 0
+                # A part with no listing of its own still counts as listed when its full set is on the market.
+                set_slug = self.catalog.set_slug_for(item.url_name)
+                set_listing = self.store.listings.get(set_slug) if set_slug and set_slug != item.url_name else None
+                in_set_listing = bool(set_listing is not None and set_listing.quantity > 0 and not is_listed)
                 # ★ = its set is on the Mastery List, $ = listed on warframe.market
                 marks = ("  ★" if on_mastery else "") + ("  $" if is_listed else "")
                 name_item = _table_item(item.display_name + marks)
@@ -4847,6 +4851,8 @@ class OwnedInventoryPage(QWidget):
                     state = f"{listing.quantity} @ {listing.platinum}p"
                     if not listing.visible:
                         state += " (hidden)"
+                elif in_set_listing:
+                    state = f"Set listed ({set_listing.quantity} @ {set_listing.platinum}p)"
                 else:
                     state = "—"
                 self.table.setItem(row, 2, _table_item(state))
@@ -4881,7 +4887,7 @@ class OwnedInventoryPage(QWidget):
                 for column in range(6):
                     cell = self.table.item(row, column)
                     cell.setData(Qt.UserRole + 2, tag)
-                    cell.setData(Qt.UserRole + 3, listing is not None and listing.quantity > 0)
+                    cell.setData(Qt.UserRole + 3, is_listed or in_set_listing)
                     cell.setData(Qt.UserRole + 4, "prime" in item.url_name)
                     cell.setData(Qt.UserRole + 5, on_mastery)
                     if tag == "can_build":
@@ -4890,7 +4896,7 @@ class OwnedInventoryPage(QWidget):
                         cell.setForeground(QColor(C_BLUE if QColor(C_BG).lightness() > 140 else C_GOLD2))
                 self.table.item(row, 1).setFont(_mono_font(self.table.font()))
                 self.table.item(row, 2).setFont(_mono_font(self.table.font()))
-                if is_listed:
+                if is_listed or in_set_listing:
                     # Listed items stand out in green on the "Listed" column.
                     self.table.item(row, 2).setForeground(QColor(C_GREEN))
         finally:

@@ -67,6 +67,28 @@ class ItemMarkTests(unittest.TestCase):
         ]
         self.assertEqual(shown, ["velox_prime_blueprint"])
 
+    def test_part_of_a_listed_set_counts_as_listed(self):
+        page = _page()
+        page.store.listings["trumna_prime_set"] = StoredListing(
+            "Trumna Prime Set", "trumna_prime_set", "order", "id", 120, 1, True, 0.0
+        )
+        page.reload()
+
+        def shown(mode):
+            page.filter_combo.setCurrentText(mode)
+            return {
+                page.table.item(row, 0).data(qt_ui.Qt.UserRole)
+                for row in range(page.table.rowCount())
+                if not page.table.isRowHidden(row)
+            }
+
+        row = next(r for r in range(page.table.rowCount())
+                   if page.table.item(r, 0).data(qt_ui.Qt.UserRole) == "trumna_prime_barrel")
+        self.assertEqual(page.table.item(row, 2).text(), "Set listed (1 @ 120p)")
+        self.assertNotIn("trumna_prime_barrel", shown("Not listed"))
+        self.assertIn("trumna_prime_barrel", shown("Listed on market"))
+        self.assertIn("wisp_prime_chassis_blueprint", shown("Not listed"))
+
 
 if __name__ == "__main__":
     unittest.main()
