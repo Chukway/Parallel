@@ -592,13 +592,22 @@ class App:
                     lines.append(f"• {part.name}: listing deleted ({listing.quantity} listed)")
                 else:
                     lines.append(f"• {part.name}: {listing.quantity} listed → {new_quantity}")
+            changed = {part.slug for part, _listing, _qty in changes}
+            for part in status.parts:
+                if part.slug in changed:
+                    continue
+                listing = listing_map.get(part.slug)
+                if listing is None:
+                    lines.append(f"• {part.name}: not listed, nothing to change")
+                else:
+                    lines.append(f"• {part.name}: {listing.quantity} listed, stays as is")
             planned = confirmed[0]
-            set_line = f"List {status.set_name}: {getattr(planned, '_override_price', price_info.suggested_listing_price)}p x {planned.quantity}"
-            body = "\n".join(lines) if lines else "No part listings need to change."
+            set_line =f"List {status.set_name}: {getattr(planned, '_override_price', price_info.suggested_listing_price)}p x {planned.quantity}"
+            body = "\n".join(lines)
             answer = self.ui.invoke(
                 lambda: QMessageBox.question(
                     None, "Combine set?",
-                    f"{set_line}\n\nThese part listings on warframe.market will change:\n{body}\n\n"
+                    f"{set_line}\n\nYour part listings on warframe.market:\n{body}\n\n"
                     "Your parts stay on your Item List until they sell. Continue?",
                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
                 ),
