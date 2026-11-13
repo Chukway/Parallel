@@ -415,6 +415,37 @@ class UIReleaseTests(unittest.TestCase):
         self.assertEqual([i.url_name for i in dialog.selected_items], ["list_prime"])
         self.assertEqual(list(dialog.removed_queued_rewards), ["skip_prime"])
 
+    def test_single_item_review_can_add_to_item_list_without_listing(self):
+        from pillar3_api import PriceInfo
+        item = SimpleNamespace(url_name="a_prime", display_name="A Prime", quantity=1,
+                               grid_position=(0, 0), _picked_by_user=True, _owned_quantity=0)
+        prices = {"a_prime": PriceInfo("a_prime", 10, 10.0, 3, 10, [])}
+
+        def run(use, add):
+            dialog = self.ui.InventoryReviewDialog([item], prices, compact=True)
+            self.addCleanup(dialog.deleteLater)
+            self.assertTrue(dialog.add_to_list_box.isChecked())      # new item: add by default
+            dialog.table.cellWidget(0, 0).setChecked(use)
+            dialog.add_to_list_box.setChecked(add)
+            dialog._confirm()
+            return dialog.selected_items
+
+        both = run(True, True)
+        self.assertEqual(both, [item])
+        self.assertTrue(item._add_to_item_list)
+        self.assertEqual(item._listing_action, "UPDATE")
+
+        add_only = run(False, True)
+        self.assertEqual(add_only, [item])
+        self.assertEqual(item._listing_action, "SKIP")
+
+        list_only = run(True, False)
+        self.assertEqual(list_only, [item])
+        self.assertFalse(item._add_to_item_list)
+        self.assertEqual(item._listing_action, "UPDATE")
+
+        self.assertEqual(run(False, False), [])
+
     def test_queue_snapshot_removal_preserves_new_rewards_and_restart(self):
         store = self.store()
         store.queue_reward("test_prime", "Test Prime")

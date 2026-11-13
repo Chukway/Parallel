@@ -241,32 +241,44 @@ class App:
                 self.ui.toast(f"Could not check your existing listing: {e}", "error", 6000)
                 return
 
-            listing_price = price_info.suggested_listing_price
-            quantity = self._quantity_from_ocr(matched.raw_ocr)
-            decision, quantity, listing_price, listing_action = self.ui.ask_confirmation(
-                matched,
-                price_info,
-                listing_price,
-                quantity=quantity,
-                preview_image=preview_image,
-                existing_listing=existing_listing,
+            # Same review window as the reward and inventory reviews, in its small one-item form:
+            # tick Use to list it, and/or "Add to Item List" to keep it.
+            item = InventoryItem(
+                display_name=matched.display_name,
+                url_name=matched.url_name,
+                quantity=self._quantity_from_ocr(matched.raw_ocr),
+                match_score=matched.match_score,
+                raw_ocr=matched.raw_ocr,
+                grid_position=(0, 0),
             )
-
-            if decision == UserDecision.CONFIRMED:
-                if listing_action == "SKIP":
-                    self.ui.toast(f"Skipped {matched.display_name}.", "info")
-                else:
-                    self._post_listing(
-                        matched.display_name,
-                        matched.url_name,
-                        listing_price,
-                        quantity,
-                        existing_listing if listing_action == "UPDATE" else None,
+            item._picked_by_user = True
+            stored = self.account_store.items.get(matched.url_name)
+            item._owned_quantity = int(stored.quantity) if stored is not None else 0
+            existing_map = {}
+            if existing_listing is not None:
+                existing_map[matched.url_name] = existing_listing
+                item._item_id = existing_listing.item_id
+            confirmed = self._show_inventory_review(
+                [item],
+                {matched.url_name: price_info},
+                existing_map,
+                scan_title="Single item",
+                preselect_single_item=True,
+                compact=True,
+            )
+            if not confirmed:
+                self.ui.toast("↩ Nothing applied.", "info")
+                return
+            for done in confirmed:
+                if getattr(done, "_add_to_item_list", False):
+                    self.account_store.increment_inventory_item(
+                        done.url_name, done.display_name, quantity=done.quantity
                     )
-            elif decision == UserDecision.TIMEOUT:
-                self.ui.toast("⏱ Timed out — cancelled.", "warning")
-            else:
-                self.ui.toast("↩ Cancelled.", "info")
+                    self.ui.toast(f"Added {done.quantity}x {done.display_name} to your Item List.", "success", 3500)
+                    self.ui.refresh_dashboard_profile()
+            to_post = [done for done in confirmed if getattr(done, "_listing_action", "SKIP") in ("UPDATE", "DELETE")]
+            if to_post:
+                self._post_confirmed_inventory_items(to_post, {matched.url_name: price_info})
         finally:
             self._scan_lock.release()
 
@@ -2647,6 +2659,7 @@ class App:
         failed_positions: list[tuple[int, int]] | None = None,
         preselect_single_item: bool = False,
         queued_reward_rows: list[dict] | None = None,
+        compact: bool = False,
     ):
         print("[Main] Creating inventory review window...")
         try:
@@ -2659,6 +2672,7 @@ class App:
                 failed_positions=failed_positions or [],
                 preselect_single_item=preselect_single_item,
                 queued_reward_rows=queued_reward_rows,
+                compact=compact,
             )
             print("[Main] Inventory review window closed.")
             return selected

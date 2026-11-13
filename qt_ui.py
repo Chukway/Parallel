@@ -1947,10 +1947,14 @@ class InventoryReviewDialog(QDialog):
         preselect_single_item: bool = False,
         parent: QWidget | None = None,
         queued_reward_rows: list[dict] | None = None,
+        compact: bool = False,
     ):
         super().__init__(parent)
         self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
         self.setWindowFlag(Qt.WindowMinimizeButtonHint, True)
+        # Compact = the small one-item review opened by the single-item scan (Ctrl+Shift+S).
+        self.compact = bool(compact) and queued_reward_rows is None
+        self.add_to_list_box = None
         self.items = items
         self.price_map = price_map
         self.existing_listing_map = existing_listing_map or {}
@@ -1970,6 +1974,8 @@ class InventoryReviewDialog(QDialog):
                 dialog_height = max(560, available.height() - 48)
             self.resize(dialog_width, dialog_height)
             self.setMinimumSize(min(860, dialog_width), min(620, dialog_height))
+        elif self.compact:
+            self.resize(940, 330)
         else:
             self.resize(940, 760)
 
@@ -2065,7 +2071,8 @@ class InventoryReviewDialog(QDialog):
         if not self.is_reward_queue_review:
             selection_bar.addWidget(delete_all)
         selection_bar.addWidget(skip_all)
-        review_layout.addLayout(selection_bar)
+        if not self.compact:
+            review_layout.addLayout(selection_bar)
         if self.is_reward_queue_review:
             queue_actions = QHBoxLayout()
             queue_actions.addWidget(QLabel(
@@ -2105,8 +2112,25 @@ class InventoryReviewDialog(QDialog):
             self.tabs.addTab(ducat_page, f"Saved for Ducats ({len(self.saved_ducat_items)})")
 
         footer = QHBoxLayout()
+        if self.compact:
+            if self.tabs is not None and not self.saved_ducat_items:
+                self.tabs.tabBar().hide()
+            owned = int(getattr(items[0], "_owned_quantity", 0)) if items else 0
+            self.add_to_list_box = _StyledCheckBox()
+            self.add_to_list_box.setChecked(owned <= 0)
+            add_label = QLabel(
+                "Add to Item List" if owned <= 0 else f"Add to Item List (you already have {owned})"
+            )
+            footer.addWidget(self.add_to_list_box)
+            footer.addWidget(add_label)
+            hint = QLabel("Tick Use to also list it on warframe.market.")
+            hint.setObjectName("Muted")
+            footer.addSpacing(16)
+            footer.addWidget(hint)
         footer.addStretch()
-        confirm = _button("Apply selected" if items else "Done", C_GREEN, "white")
+        confirm = _button(
+            "Apply" if self.compact else ("Apply selected" if items else "Done"), C_GREEN, "white"
+        )
         cancel = _button("Close", C_BG3)
         confirm.clicked.connect(self._confirm)
         cancel.clicked.connect(self.reject)
@@ -2329,6 +2353,15 @@ class InventoryReviewDialog(QDialog):
             )
             if answer != QMessageBox.StandardButton.Yes:
                 return
+        if self.compact and self.items:
+            add_to_list = bool(self.add_to_list_box is not None and self.add_to_list_box.isChecked())
+            item = self.items[0]
+            item._add_to_item_list = add_to_list
+            if add_to_list and item not in selected and self.table.rowCount():
+                # Add only: keep the item in the list without touching warframe.market.
+                item._listing_action = "SKIP"
+                item.quantity = self.table.cellWidget(0, 2).value()
+                selected.append(item)
         self.selected_items = selected
         self.accept()
 
@@ -7017,6 +7050,7 @@ class UIController:
         failed_positions: list[tuple[int, int]] | None = None,
         preselect_single_item: bool = False,
         queued_reward_rows: list[dict] | None = None,
+        compact: bool = False,
     ):
         def _show():
             dialog = InventoryReviewDialog(
@@ -7029,6 +7063,7 @@ class UIController:
                 preselect_single_item,
                 parent=None,
                 queued_reward_rows=queued_reward_rows,
+                compact=compact,
             )
             # Independent native window: dashboard focus/minimization must not
             # follow the review, and reviewing must not block other windows.
