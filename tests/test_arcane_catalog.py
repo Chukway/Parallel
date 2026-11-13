@@ -75,6 +75,22 @@ class RankAwareApiTests(unittest.TestCase):
         self.assertNotIn("rank", sent[0])
         self.assertEqual(sent[1]["rank"], 5)
 
+    def test_create_order_retries_with_per_trade_when_the_market_requires_it(self):
+        from pillar3_api import WFMApiError
+        sent = []
+
+        def request(method, endpoint, **kw):
+            sent.append(dict(kw["json"]))
+            if "perTrade" not in kw["json"]:
+                raise WFMApiError('400 Bad Request {"inputs":{"perTrade":"app.field.required"}}')
+            return {"data": {"id": "new"}}
+
+        api = WarframeMarketAPI.__new__(WarframeMarketAPI)
+        api._request = request
+        self.assertEqual(api.create_sell_order("i", 50, 1, rank=5)["id"], "new")
+        self.assertNotIn("perTrade", sent[0])
+        self.assertEqual(sent[1]["perTrade"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

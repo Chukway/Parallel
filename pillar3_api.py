@@ -815,7 +815,15 @@ class WarframeMarketAPI:
         }
         if rank is not None:
             body["rank"] = max(0, int(rank))
-        data = self._request("POST", "/order", json=body)
+        try:
+            data = self._request("POST", "/order", json=body)
+        except WFMApiError as exc:
+            # Items that can be traded in bulk (many arcanes) need a "perTrade" amount. One copy per
+            # trade is what these listings have always meant.
+            if "perTrade" not in str(exc) or "perTrade" in body:
+                raise
+            body["perTrade"] = 1
+            data = self._request("POST", "/order", json=body)
         order = data.get("data") or data.get("payload", {}).get("order", {})
         if not isinstance(order, dict) or not (order.get("id") or order.get("_id")):
             raise WFMApiError("Warframe.market did not return a created order ID. Refresh listings before retrying.")
