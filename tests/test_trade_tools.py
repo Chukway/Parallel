@@ -241,6 +241,33 @@ class BaroTests(unittest.TestCase):
         self.assertIn("arrives", trade_tools.baro_status(data, datetime(2026, 11, 5, 14, tzinfo=timezone.utc)))
 
 
+class BaroCacheTests(unittest.TestCase):
+    DATA = {"activation": "2026-11-06T14:00:00Z", "expiry": "2026-11-08T14:00:00Z", "location": "Kronia Relay"}
+
+    def test_cache_is_reused_during_the_visit_and_dropped_after(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "baro.json"
+            rows = [{"name": "Ash Prime Blueprint"}]
+            trade_tools.save_baro_cache(self.DATA, rows, path)
+            during = trade_tools.load_baro_cache(path, datetime(2026, 11, 7, 14, tzinfo=timezone.utc))
+            self.assertEqual(during["rows"], rows)
+            self.assertIsNone(trade_tools.load_baro_cache(path, datetime(2026, 11, 9, tzinfo=timezone.utc)))
+
+    def test_cache_saved_before_arrival_is_refetched_once_he_arrives(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "baro.json"
+            trade_tools.save_baro_cache(self.DATA, [], path)
+            self.assertIsNotNone(trade_tools.load_baro_cache(path, datetime(2026, 11, 5, tzinfo=timezone.utc)))
+            self.assertIsNone(trade_tools.load_baro_cache(path, datetime(2026, 11, 7, tzinfo=timezone.utc)))
+
+    def test_missing_or_broken_cache_is_ignored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "baro.json"
+            self.assertIsNone(trade_tools.load_baro_cache(path))
+            path.write_text("not json", encoding="utf-8")
+            self.assertIsNone(trade_tools.load_baro_cache(path))
+
+
 class ManualSaleTests(unittest.TestCase):
     def test_add_edit_delete_sale(self):
         from account_store import AccountStore

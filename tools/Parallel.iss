@@ -1,7 +1,7 @@
 ; Inno Setup script for the Parallel installer. Build with:  ISCC.exe tools\Parallel.iss
 ; Needs dist\Parallel (run build_parallel.ps1 first). Output: dist\installer\Parallel-Setup.exe
 #define AppName "Parallel"
-#define AppVersion "1.0.0"
+#define AppVersion "1.1.0"
 #define AppPublisher "Chukway"
 
 [Setup]

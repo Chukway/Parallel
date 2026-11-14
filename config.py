@@ -17,7 +17,7 @@ from settings_validation import MAX_SETTINGS_BYTES, sanitize_settings
 APP_NAME = "Parallel"
 APP_SLUG = "Parallel"
 LEGACY_APP_SLUG = "Sidro"   # data folder used before the rename; copied once, never deleted
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 # Parallel is a fork with no release feed of its own; never offer the original
 # project's releases as updates. Set to True only after pointing update_core at your own repo.
 UPDATE_SOURCE_ENABLED = False

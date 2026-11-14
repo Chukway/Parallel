@@ -800,15 +800,26 @@ class BaroTab(QWidget):
         )))
 
     def on_shown(self):
-        if not self._loaded_once:
+        if self._loaded_once:
+            return
+        cached = trade_tools.load_baro_cache()
+        if cached is None:
             self.refresh()
+            return
+        # Baro's stock cannot change during a visit, so show what was saved at once and
+        # only re-check prices in the background when they are over an hour old.
+        self._loaded_once = True
+        self._finish({"status": trade_tools.baro_status(cached["data"]), "rows": cached["rows"]}, "")
+        if cached["stale_prices"]:
+            self.refresh(quiet=True)
 
-    def refresh(self):
+    def refresh(self, quiet: bool = False):
         if self._busy:
             return
         self._busy = True
         self._loaded_once = True
-        self.status.setText("Loading Baro Ki'Teer...")
+        if not quiet:
+            self.status.setText("Loading Baro Ki'Teer...")
         api = self.get_api()
         names = _market_item_names()
 
@@ -819,6 +830,7 @@ class BaroTab(QWidget):
             try:
                 data = trade_tools.fetch_baro()
                 rows = trade_tools.baro_rows(data, names, price if api is not None else None)
+                trade_tools.save_baro_cache(data, rows)
                 self.loaded.emit({"status": trade_tools.baro_status(data), "rows": rows}, "")
             except Exception as e:
                 self.loaded.emit(None, str(e))
@@ -828,6 +840,9 @@ class BaroTab(QWidget):
     def _finish(self, result, error: str):
         self._busy = False
         if result is None:
+            if self.table.rowCount():
+                self.status.setText(f"{self.status.text()} (could not update prices: {error})")
+                return
             self._loaded_once = False
             self.status.setText(f"Could not load Baro's stock: {error}")
             return

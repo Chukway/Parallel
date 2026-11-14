@@ -535,6 +535,43 @@ def fetch_baro() -> dict:
     return response.json()
 
 
+BARO_PRICE_REFRESH_SECONDS = 3600
+
+
+def _baro_cache_path() -> Path:
+    return config.USER_DATA_DIR / "baro_cache.json"
+
+
+def save_baro_cache(data: dict, rows: list[dict], path: Path | None = None) -> None:
+    """Remember Baro's stock so the page can open instantly next time."""
+    path = path or _baro_cache_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"saved": time.time(), "data": data, "rows": rows}), encoding="utf-8")
+    except OSError as e:
+        print(f"[Baro] Could not save cache: {e}")
+
+
+def load_baro_cache(path: Path | None = None, now: datetime | None = None) -> dict | None:
+    """Return {"data", "rows", "saved", "stale_prices"} while the cache still describes Baro's current
+    visit (or his upcoming arrival), else None so the caller fetches fresh data."""
+    path = path or _baro_cache_path()
+    try:
+        cached = json.loads(path.read_text(encoding="utf-8"))
+        data, rows, saved = cached["data"], cached["rows"], float(cached["saved"])
+        start = datetime.fromisoformat(str(data["activation"]).replace("Z", "+00:00"))
+        end = datetime.fromisoformat(str(data["expiry"]).replace("Z", "+00:00"))
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    now = now or datetime.now().astimezone()
+    if now >= end:
+        return None  # his visit is over
+    if now >= start and not rows:
+        return None  # cached before he arrived, so it has no stock yet
+    return {"data": data, "rows": rows, "saved": saved,
+            "stale_prices": (time.time() - saved) > BARO_PRICE_REFRESH_SECONDS}
+
+
 def baro_status(data: dict, now: datetime | None = None) -> str:
     """One line: where Baro is and how long until he arrives or leaves."""
     def parse(value: str) -> datetime | None:
