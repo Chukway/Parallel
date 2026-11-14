@@ -5704,12 +5704,13 @@ class Dashboard(QMainWindow):
         self.trade_scan_check = _StyledCheckBox("Live Trade Scanning")
         self.trade_scan_check.setChecked(False)
         self.trade_scan_check.toggled.connect(self._set_trade_scan_enabled)
-        # Log viewing moved to Settings; this hidden box keeps the logic in one place.
-        self.log_check = _StyledCheckBox("Enable log viewing")
+        # Also mirrored by the Troubleshooting checkbox in Settings.
+        self.log_check = _StyledCheckBox("Logs")
+        self.log_check.setToolTip("Open Parallel's activity log window")
         self.log_check.toggled.connect(self._set_log_viewing)
-        self.log_check.hide()
         header.insertWidget(0, self.reward_check)
         header.insertWidget(1, self.trade_scan_check)
+        header.insertWidget(2, self.log_check)
         layout.addWidget(self.tabs.stack, 1)
 
         inventory_tab = QWidget()

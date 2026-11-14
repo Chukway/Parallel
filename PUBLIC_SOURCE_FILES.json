@@ -50,7 +50,7 @@
     "pillar2_ocr.py": "7f84a878ac0b36abe537748df016700dcc0313887bdfcde8c310e6211e34f606",
     "pillar3_api.py": "9953b0417d46341b76a08579b1fd9955920ad48184771ab35d780011b8d66a9d",
     "pillar4_ui.py": "7646aea72d11e4355dc4349f4cc5f5a2befbff7c9bd805d9953779b5c5cfe0fa",
-    "qt_ui.py": "fc48c1ec29ffd67146626e5724e7f29976b04a9557ff1ecc1f152318bc366d23",
+    "qt_ui.py": "07c82b60d21d051bdce81bceed3a0238bd52ec74a6258aff5acf0caf5563c8a8",
     "release_materials/DEPENDENCY_BASELINE.md": "4298b2d08a821cebf217ef4e01ebd3185e2381cd4ca87b2bac56adc080d96572",
     "release_materials/README.md": "1a88aa2778c43dcdbee123f050b7f3a4d4e880c265bad4fc69dc70b4d67341a8",
     "release_materials/RELEASE_REQUIREMENTS.md": "b7cf80e3c2d01a91a54dc7bc6ae462f549229c3d179c51b7adab34129430fe82",
