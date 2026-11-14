@@ -21,7 +21,7 @@ from auth_manager import (
     save_wfm_token,
     validate_wfm_token,
 )
-from account_store import AccountStore
+from account_store import AccountStore, listing_key, split_listing_key
 import trade_tools
 from reward_history import RewardHistory
 from concurrent.futures import ThreadPoolExecutor
@@ -1135,6 +1135,19 @@ class App:
             self._trade_live_scan_stop.wait(interval)
         print("[Trade] Live scanner stopped.")
 
+    def _take_sold_set_parts(self, url_name: str, count: int):
+        """A sold Set uses up its parts, so they leave the Item List too."""
+        if not str(url_name).endswith("_set"):
+            return
+        try:
+            if getattr(self, "_set_catalog", None) is None:
+                self._set_catalog = SetCatalog()
+            changed = self.account_store.take_set_parts(url_name, count, self._set_catalog)
+            if changed:
+                print(f"[Trade] Took the parts of {count} sold set(s) out of the Item List: {url_name}")
+        except Exception as e:
+            print(f"[Trade] Could not update the parts of {url_name}: {e}")
+
     def _decrement_listings_after_trade(self, traded_items):
         if not config.ENABLE_LIVE_LISTING:
             self.ui.alert(
@@ -1166,6 +1179,7 @@ class App:
                     self.account_store.decrement_after_trade(
                         url_name, sold_count, existing.platinum * sold_count
                     )
+                    self._take_sold_set_parts(url_name, sold_count)
                     deleted += 1
                 else:
                     print(f"[Trade] Failed to delete sold-out listing: {url_name}")
@@ -1183,6 +1197,7 @@ class App:
                 self.account_store.decrement_after_trade(
                     url_name, sold_count, existing.platinum * sold_count
                 )
+                self._take_sold_set_parts(url_name, sold_count)
                 updated += 1
             except (WFMApiError, WFMAuthError) as e:
                 print(f"[Trade] Failed to reduce listing for {url_name}: {e}")
@@ -2369,10 +2384,12 @@ class App:
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=getattr(config, "PRICE_LOOKUP_WORKERS", 4)
         ) as pool:
-            future_map = {
-                pool.submit(self.api.get_price_info, url_name, strategy): url_name
-                for url_name in url_names
-            }
+            # A ranked listing (arcane at rank 5) is priced against sellers of that rank only.
+            def lookup(key: str):
+                slug, rank = split_listing_key(key)
+                return self.api.get_price_info(slug, strategy, rank=rank if rank else None)
+
+            future_map = {pool.submit(lookup, url_name): url_name for url_name in url_names}
             for future in concurrent.futures.as_completed(future_map):
                 url_name = future_map[future]
                 try:
@@ -2427,11 +2444,14 @@ class App:
             display_name, url_name, _match_score, _matched = self._resolve_market_query(display_name)
         elif not display_name:
             display_name = self.account_store.display_name(url_name) or url_name.replace("_", " ").title()
+        display_name = display_name.split(" (rank ")[0]   # the whisper names the item, not the rank label
 
+        url_name, wanted_rank = split_listing_key(url_name)   # ranked listing: only buyers of that rank
         all_orders = self.api.get_orders(url_name)
         active_buys = [
             order for order in all_orders
             if (order.get("type") or order.get("order_type")) == "buy"
+            and (not wanted_rank or int(order.get("rank") or 0) == wanted_rank)
             and order.get("visible", True)
             and order.get("user", {}).get("status") in ("ingame", "online")
         ]
@@ -2488,9 +2508,9 @@ class App:
         self.account_store.replace_listings(existing_map)
 
         by_url = {
-            listing.item_url_name: listing
+            listing_key(listing.item_url_name, listing.rank): listing
             for listing in existing_map.values()
-            if listing.order_id and listing.item_url_name in item_updates
+            if listing.order_id and listing_key(listing.item_url_name, listing.rank) in item_updates
         }
 
         updated, failed = 0, 0
@@ -2519,6 +2539,7 @@ class App:
                     platinum=new_price,
                     quantity=new_quantity,
                     visible=new_visible,
+                    rank=existing.rank,
                 )
                 visibility_text = "visible" if new_visible else "hidden"
                 print(
@@ -2560,7 +2581,7 @@ class App:
         for index, listing in enumerate(unique.values()):
             try:
                 if self.api.delete_order(listing.order_id):
-                    self.account_store.delete_listing(listing.item_url_name)
+                    self.account_store.delete_listing(listing_key(listing.item_url_name, listing.rank))
                     deleted += 1
                 else:
                     failed += 1
@@ -2608,7 +2629,7 @@ class App:
         self.account_store.replace_listings(existing_map)
 
         by_url = {
-            listing.item_url_name: listing
+            listing_key(listing.item_url_name, listing.rank): listing
             for listing in existing_map.values()
             if listing.order_id
         }
@@ -2680,46 +2701,6 @@ class App:
             print("[Main] ERROR creating inventory review window:")
             traceback.print_exc()
             return []
-
-    def _post_listing(self, display_name, url_name, platinum, quantity=1, existing_listing=None):
-        if not config.ENABLE_LIVE_LISTING:
-            print(f"[Main] LIVE LISTING DISABLED. Plan: {display_name} @ {platinum}p")
-            self.ui.toast("Live listing changes are disabled. Enable ENABLE_LIVE_LISTING in config.py to post.", "warning", 8000)
-            return
-        try:
-            quantity = max(1, int(quantity))
-            if existing_listing is not None:
-                self.api.update_order_price(
-                    existing_listing.order_id,
-                    platinum,
-                    quantity=quantity,
-                    visible=existing_listing.visible,
-                )
-                item_id = existing_listing.item_id or self.api.get_item_id(url_name) or ""
-                order_id = existing_listing.order_id
-                result_message = f"Updated '{display_name}' to {platinum}p x{quantity}"
-            else:
-                order = self.api.list_item(
-                    url_name,
-                    platinum,
-                    quantity=quantity,
-                )
-                item_id = self.api.get_item_id(url_name) or ""
-                order_id = order.get("id") or order.get("_id") or ""
-                result_message = f"Listed {quantity}x '{display_name}' for {platinum}p each"
-            self.account_store.upsert_listing(
-                url_name,
-                display_name,
-                order_id,
-                item_id=item_id,
-                platinum=platinum,
-                quantity=quantity,
-                visible=existing_listing.visible if existing_listing is not None else True,
-            )
-            self.ui.refresh_dashboard_profile()
-            self.ui.toast(f"✅ {result_message}", "success", 5000)
-        except (WFMAuthError, WFMApiError) as e:
-            self.ui.toast(f"❌ {e}", "error")
 
     def _start_hotkey_thread(self, label: str, target):
         if self._ocr_reset_pending.is_set():

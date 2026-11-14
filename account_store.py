@@ -30,16 +30,35 @@ class StoredItem:
     last_seen: float = 0.0
 
 
+def listing_key(url_name: str, rank: int = 0) -> str:
+    """Key of a listing in the store: the item slug, or ``slug@rank`` for a ranked listing (arcanes, mods)."""
+    rank = int(rank or 0)
+    return f"{url_name}@{rank}" if rank > 0 else url_name
+
+
+def split_listing_key(key: str) -> tuple[str, int]:
+    """Inverse of :func:`listing_key`: returns (slug, rank)."""
+    slug, separator, rank = str(key).rpartition("@")
+    if separator and rank.isdigit():
+        return slug, int(rank)
+    return str(key), 0
+
+
 @dataclass
 class StoredListing:
     display_name: str
-    url_name: str
+    url_name: str       # the store key: the slug, or "slug@rank" for a ranked listing
     order_id: str
     item_id: str = ""
     platinum: int = 0
     quantity: int = 0
     visible: bool = True
     last_synced: float = 0.0
+    rank: int = 0
+
+    @property
+    def slug(self) -> str:
+        return split_listing_key(self.url_name)[0]
 
 
 MAX_SALES = 5000
@@ -95,6 +114,7 @@ class AccountStore:
                 quantity=int(raw.get("quantity") or 0),
                 visible=bool(raw.get("visible", True)),
                 last_synced=float(raw.get("last_synced") or 0),
+                rank=int(raw.get("rank") or split_listing_key(url)[1]),
             )
             for url, raw in (data.get("listings") or {}).items()
             if isinstance(raw, dict)
@@ -164,7 +184,19 @@ class AccountStore:
             return self.items[url_name].display_name
         if url_name in self.listings:
             return self.listings[url_name].display_name
-        return _title_from_slug(url_name)
+        slug, rank = split_listing_key(url_name)
+        if rank and slug in self.items:
+            return f"{self.items[slug].display_name} (rank {rank})"
+        return _title_from_slug(slug) + (f" (rank {rank})" if rank else "")
+
+    @_synchronized
+    def listing_for_item(self, url_name: str):
+        """The listing of an item: the unranked one, else the highest-ranked listing of that slug."""
+        listing = self.listings.get(url_name)
+        if listing is not None:
+            return listing
+        ranked = [row for row in self.listings.values() if row.slug == url_name and row.rank > 0]
+        return max(ranked, key=lambda row: row.rank) if ranked else None
 
     @_synchronized
     def upsert_inventory_items(self, items: Iterable[object]):
@@ -193,7 +225,7 @@ class AccountStore:
     def remove_items(self, url_names: Iterable[str]) -> int:
         """Forget items Parallel wrongly thinks you own. Local only: market listings are untouched."""
         removed = 0
-        for url in set(url_names):
+        for url in {split_listing_key(name)[0] for name in url_names}:
             if self.items.pop(url, None) is not None:
                 removed += 1
         if removed:
@@ -309,31 +341,40 @@ class AccountStore:
         platinum: int = 0,
         quantity: int = 0,
         visible: bool = True,
+        rank: int = 0,
     ):
+        """Record one listing. ``url_name`` may be a slug or a ranked key (``slug@5``)."""
         if not url_name:
             return
+        slug, key_rank = split_listing_key(url_name)
+        rank = int(rank or key_rank)
+        key = listing_key(slug, rank)
         now = time.time()
-        display = display_name or self.display_name(url_name)
-        self.listings[url_name] = StoredListing(
+        display = display_name or self.display_name(key)
+        base = display.split(" (rank ")[0]
+        if rank and " (rank " not in display:
+            display = f"{display} (rank {rank})"
+        self.listings[key] = StoredListing(
             display_name=display,
-            url_name=url_name,
+            url_name=key,
             order_id=order_id,
             item_id=item_id,
             platinum=int(platinum),
             quantity=max(0, int(quantity)),
             visible=bool(visible),
             last_synced=now,
+            rank=rank,
         )
-        if url_name not in self.items:
-            self.items[url_name] = StoredItem(
-                display_name=display,
-                url_name=url_name,
+        if slug not in self.items:
+            self.items[slug] = StoredItem(
+                display_name=base,
+                url_name=slug,
                 quantity=max(0, int(quantity)),
                 item_id=item_id,
                 last_seen=now,
             )
         elif item_id:
-            self.items[url_name].item_id = item_id
+            self.items[slug].item_id = item_id
         self.save()
 
     @_synchronized
@@ -354,16 +395,20 @@ class AccountStore:
             url = listing.item_url_name
             if not url:
                 continue
+            rank = int(getattr(listing, "rank", 0) or 0)
+            key = listing_key(url, rank)
             display = display_names_by_url.get(url) or self.display_name(url)
-            self.listings[url] = StoredListing(
-                display_name=display,
-                url_name=url,
+            shown = f"{display} (rank {rank})" if rank else display
+            self.listings[key] = StoredListing(
+                display_name=shown,
+                url_name=key,
                 order_id=listing.order_id,
                 item_id=listing.item_id,
                 platinum=int(listing.platinum),
                 quantity=int(listing.quantity),
                 visible=bool(listing.visible),
                 last_synced=now,
+                rank=rank,
             )
             if url not in self.items:
                 self.items[url] = StoredItem(
@@ -437,9 +482,11 @@ class AccountStore:
         Warframe.market listings are never touched.
         """
         count = max(1, int(count))
+        shown = display_name or self.display_name(url_name)
+        url_name = split_listing_key(url_name)[0]
         self.sales.append({
             "url_name": url_name,
-            "display_name": display_name or self.display_name(url_name),
+            "display_name": shown,
             "count": count,
             "at": float(at if at is not None else time.time()),
             "platinum": max(0, int(platinum or 0)),
@@ -450,6 +497,29 @@ class AccountStore:
             self.items[url_name].quantity = max(0, self.items[url_name].quantity - count)
             self.items[url_name].last_seen = time.time()
         self.save()
+
+    @_synchronized
+    def take_set_parts(self, set_slug: str, count: int, catalog) -> int:
+        """A set was sold: take its parts (``needed`` of each, per set) out of the Item List.
+
+        ``catalog`` is a SetCatalog. Returns how many part rows changed; 0 when the slug is not a
+        known set, so this is safe to call for any sold item.
+        """
+        count = max(1, int(count))
+        status = catalog.status_for(set_slug, {}) if catalog is not None else None
+        if status is None or not status.parts:
+            return 0
+        changed = 0
+        for part in status.parts:
+            item = self.items.get(part.slug)
+            if item is None:
+                continue
+            item.quantity = max(0, item.quantity - int(part.needed) * count)
+            item.last_seen = time.time()
+            changed += 1
+        if changed:
+            self.save()
+        return changed
 
     @_synchronized
     def delete_sale(self, sale: dict) -> bool:
@@ -464,8 +534,8 @@ class AccountStore:
     @_synchronized
     def listed_match_candidates(self) -> dict[str, str]:
         return {
-            url: listing.display_name
-            for url, listing in self.listings.items()
+            listing.slug: listing.display_name.split(" (rank ")[0]
+            for listing in self.listings.values()
             if listing.visible and listing.quantity > 0
         }
 

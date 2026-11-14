@@ -312,11 +312,11 @@ OCR_RECOMMENDED_BY_CONTEXT = {
     "reward_prices": "rapidocr",
 }
 OCR_RECOMMENDATION_NOTES = {
-    "single_scan": "RapidOCR with PP-OCRv6 small (bundled with Sidro).",
-    "inventory_6x3": "RapidOCR with PP-OCRv6 small (bundled with Sidro).",
-    "inventory_bottom6": "RapidOCR with PP-OCRv6 small (bundled with Sidro).",
-    "trade_monitor": "RapidOCR with PP-OCRv6 small (bundled with Sidro).",
-    "reward_prices": "RapidOCR with PP-OCRv6 small (bundled with Sidro).",
+    "single_scan": "RapidOCR with PP-OCRv6 small (bundled with Parallel).",
+    "inventory_6x3": "RapidOCR with PP-OCRv6 small (bundled with Parallel).",
+    "inventory_bottom6": "RapidOCR with PP-OCRv6 small (bundled with Parallel).",
+    "trade_monitor": "RapidOCR with PP-OCRv6 small (bundled with Parallel).",
+    "reward_prices": "RapidOCR with PP-OCRv6 small (bundled with Parallel).",
 }
 OCR_FALLBACK_ENABLED = False
 OCR_FALLBACK_ENGINE = "rapidocr"

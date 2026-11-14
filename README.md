@@ -168,9 +168,11 @@ platinum or by ducats, or switch to a single ranked list in the corner, or to th
 ### Reviewing queued rewards
 
 **Review rewards** (left side) lists the rewards you picked, which are already on your Item List.
-Tick **List** and press **Apply selected** to post them to warframe.market. Tick **Skip listing** on
-a reward to keep it on your Item List without posting it; it is cleared from the queue, whichever
-button you press.
+Tick **List** and press **Apply selected** to post them to warframe.market; if the item is already
+listed, the new copies are added to that listing. To keep a reward on your Item List without listing
+it, tick **Don't list** on it (or tick **List** on the rewards and press **Keep in Item List**, which
+ticks them for you). **Don't list all** ticks every row. Rows marked Don't list are cleared from the
+queue when you press **Apply selected**.
 ## Your data and backups
 
 - Everything personal stays on your computer in `%LOCALAPPDATA%\Parallel`: your token, settings,

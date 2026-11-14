@@ -1504,350 +1504,6 @@ class LogViewerDialog(QDialog):
         self.text.clear()
 
 
-class ConfirmationDialog(QDialog):
-    def __init__(
-        self,
-        matched_item: MatchedItem,
-        price_info: PriceInfo,
-        listing_price: int,
-        quantity: int = 1,
-        preview_image: QImage | None = None,
-        existing_listing: ExistingListing | None = None,
-    ):
-        super().__init__()
-        self.setWindowTitle("Review selected item")
-        self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
-        self.setModal(True)
-        self.result_value = UserDecision.CANCELLED
-        self.quantity = max(1, int(quantity))
-        self.existing_listing = existing_listing
-        self.selected_action = "SKIP"
-        self.setObjectName("SnipReview")
-        font_size = int(getattr(config, "UI_FONT_SIZE", 12))
-        available = self.screen().availableGeometry()
-        self.setMinimumWidth(min(max(560, 560 + (font_size - 12) * 20), available.width() - 40))
-        control_height = max(36, font_size + 24)
-        self.setStyleSheet(
-            f"""
-            QFrame#SnipCard {{
-                background: {C_BG2};
-                border: 1px solid {C_BG3};
-                border-radius: 8px;
-            }}
-            QLabel#SnipTitle {{
-                color: {C_GOLD};
-                font-size: {font_size + 8}px;
-                font-weight: 700;
-            }}
-            QLabel#SnipSection {{ font-weight: 600; }}
-            QLabel#SnipPrice {{ font-size: {font_size + 6}px; font-weight: 600; }}
-            QLabel#SnipSuggestion {{
-                color: {C_GOLD};
-                font-size: {font_size + 6}px;
-                font-weight: 600;
-            }}
-            QLabel#SnipConfidence {{ color: {C_GOLD}; }}
-            QComboBox, QLineEdit {{ border-radius: 4px; padding: 7px; }}
-            QPushButton#SnipDetailsToggle {{
-                background: transparent;
-                color: {C_TEXT};
-                border: none;
-                padding: 4px 0;
-                text-align: left;
-            }}
-            QPushButton#SnipDetailsToggle:hover {{ color: {C_GOLD}; }}
-            QPushButton#SnipDetailsToggle:focus {{ border: 1px solid {C_GOLD}; }}
-            QScrollArea#SnipScroll {{ background: transparent; border: none; }}
-            QScrollBar:vertical {{ background: {C_BG}; width: 8px; margin: 0; }}
-            QScrollBar::handle:vertical {{
-                background: {C_BG3}; min-height: 24px; border-radius: 4px;
-            }}
-            QScrollBar::handle:vertical:hover {{ background: {C_MUTED}; }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: none; }}
-            """
-        )
-        root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(18, 18, 18, 18)
-        root_layout.setSpacing(12)
-        self.review_content = QWidget()
-        layout = QVBoxLayout(self.review_content)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
-        scroll = QScrollArea()
-        scroll.setObjectName("SnipScroll")
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setWidget(self.review_content)
-        self.review_scroll = scroll
-        root_layout.addWidget(scroll, 1)
-
-        item_card = QFrame()
-        item_card.setObjectName("SnipCard")
-        item_layout = QHBoxLayout(item_card)
-        item_layout.setContentsMargins(16, 16, 16, 16)
-        item_layout.setSpacing(16)
-        has_preview = preview_image is not None and not preview_image.isNull()
-        if has_preview:
-            preview = QLabel()
-            preview.setAlignment(Qt.AlignCenter)
-            preview.setFixedSize(144, 88)
-            preview.setPixmap(
-                QPixmap.fromImage(preview_image).scaled(
-                    144, 88, Qt.KeepAspectRatio, Qt.SmoothTransformation
-                )
-            )
-            preview.setToolTip("Expand Scan details below to inspect the captured image.")
-            item_layout.addWidget(preview)
-
-        item_text = QVBoxLayout()
-        item_text.setSpacing(6)
-        detected = QLabel("Identified item")
-        detected.setObjectName("Muted")
-        item_text.addWidget(detected)
-        title = QLabel(matched_item.display_name)
-        title.setObjectName("SnipTitle")
-        title.setTextFormat(Qt.PlainText)
-        title.setWordWrap(True)
-        title.setMinimumWidth(0)
-        title.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        item_text.addWidget(title)
-        confidence = QLabel(f"{matched_item.match_score}% match confidence")
-        confidence.setObjectName("SnipConfidence")
-        item_text.addWidget(confidence)
-        item_layout.addLayout(item_text, 1)
-        layout.addWidget(item_card)
-
-        market_card = QFrame()
-        market_card.setObjectName("SnipCard")
-        market_layout = QGridLayout(market_card)
-        market_layout.setContentsMargins(16, 12, 16, 12)
-        market_layout.setHorizontalSpacing(16)
-        market_layout.setVerticalSpacing(4)
-        for column, (label, value, object_name) in enumerate((
-            ("Lowest seller", price_info.lowest_sell_price, "SnipPrice"),
-            ("Market suggestion", price_info.suggested_listing_price, "SnipSuggestion"),
-        )):
-            caption = QLabel(label)
-            caption.setObjectName("Muted")
-            amount = QLabel(f"{value}p")
-            amount.setObjectName(object_name)
-            market_layout.addWidget(caption, 0, column)
-            market_layout.addWidget(amount, 1, column)
-            market_layout.setColumnStretch(column, 1)
-        layout.addWidget(market_card)
-
-        listing_card = QFrame()
-        listing_card.setObjectName("SnipCard")
-        listing_layout = QVBoxLayout(listing_card)
-        listing_layout.setContentsMargins(16, 16, 16, 16)
-        listing_layout.setSpacing(12)
-        heading = QLabel("Listing settings")
-        heading.setObjectName("SnipSection")
-        listing_layout.addWidget(heading)
-        self.action_combo = QComboBox()
-        if existing_listing is not None:
-            self.action_combo.addItem("Skip existing listing", "SKIP")
-            self.action_combo.addItem("Update existing listing", "UPDATE")
-            existing_note = QLabel(
-                f"Already listed: {existing_listing.quantity}x at {existing_listing.platinum}p"
-                f"  ·  {'visible' if existing_listing.visible else 'hidden'}"
-            )
-        else:
-            self.action_combo.addItem("Create new listing", "CREATE")
-            self.action_combo.addItem("Skip this item", "SKIP")
-            existing_note = QLabel("No existing listing found for this item.")
-        existing_note.setObjectName("Muted")
-        existing_note.setWordWrap(True)
-        listing_layout.addWidget(existing_note)
-
-        self.price_preset = QComboBox()
-        if existing_listing is not None:
-            self.price_preset.addItem("Current listing")
-        self.price_preset.addItems(
-            ["Most Common", "Most Common -1", "Most Common -2", "Quicksell", "Lowest -1p", "Lowest +1p", "Lowest +2p", "Lowest +3p"]
-        )
-        self.quantity_editor = NumberEditor(1, 999, self.quantity)
-        self.quantity_editor.setToolTip("Number of copies to include in this listing")
-        initial_price = existing_listing.platinum if existing_listing is not None else listing_price
-        self.price_editor = NumberEditor(
-            config.MIN_LISTING_PRICE,
-            99999,
-            max(config.MIN_LISTING_PRICE, int(initial_price)),
-        )
-        self.price_editor.setToolTip("Price per copy, in platinum")
-        for editor, name in ((self.quantity_editor, "Quantity"), (self.price_editor, "Price")):
-            editor.layout().setSpacing(4)
-            editor.edit.setMinimumWidth(64)
-            editor.edit.setMaximumWidth(16777215)
-            editor.edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            editor.edit.setAlignment(Qt.AlignCenter)
-            editor.edit.setAccessibleName(name)
-            editor.edit.setMinimumHeight(control_height)
-            for button, operation in ((editor.minus, "Decrease"), (editor.plus, "Increase")):
-                button.setFixedSize(control_height, control_height)
-                button.setAutoDefault(False)
-                button.setAccessibleName(f"{operation} {name.lower()}")
-            editor.setFocusProxy(editor.edit)
-        self.price_preset.currentTextChanged.connect(lambda _text: self._apply_price_preset(price_info))
-        self.price_preset.setCurrentText("Current listing" if existing_listing is not None else "Most Common")
-
-        fields = QGridLayout()
-        fields.setHorizontalSpacing(16)
-        fields.setVerticalSpacing(6)
-        fields.setColumnStretch(0, 1)
-        fields.setColumnStretch(1, 1)
-        for row, column, text, widget in (
-            (0, 0, "Action", self.action_combo),
-            (0, 1, "Selling preset", self.price_preset),
-            (3, 0, "Quantity", self.quantity_editor),
-            (3, 1, "Price per copy (platinum)", self.price_editor),
-        ):
-            label = QLabel(text)
-            label.setWordWrap(True)
-            label.setBuddy(widget)
-            widget.setAccessibleName(text)
-            widget.setMinimumHeight(control_height)
-            fields.addWidget(label, row, column)
-            fields.addWidget(widget, row + 1, column)
-        fields.setRowMinimumHeight(2, 6)
-        listing_layout.addLayout(fields)
-        self.listing_summary = QLabel()
-        self.listing_summary.setWordWrap(True)
-        listing_layout.addWidget(self.listing_summary)
-        layout.addWidget(listing_card)
-
-        self.details_toggle = QPushButton("▸ Scan details")
-        self.details_toggle.setObjectName("SnipDetailsToggle")
-        self.details_toggle.setCursor(Qt.PointingHandCursor)
-        self.details_toggle.setCheckable(True)
-        self.details_toggle.setAutoDefault(False)
-        self.details_toggle.toggled.connect(self._toggle_scan_details)
-        layout.addWidget(self.details_toggle)
-        self.scan_details = QFrame()
-        self.scan_details.setObjectName("SnipCard")
-        details_layout = QVBoxLayout(self.scan_details)
-        details_layout.setContentsMargins(16, 12, 16, 12)
-        details_layout.setSpacing(10)
-        if has_preview:
-            full_preview = QLabel()
-            full_preview.setAlignment(Qt.AlignCenter)
-            full_preview.setPixmap(QPixmap.fromImage(preview_image).scaled(
-                480, 180, Qt.KeepAspectRatio, Qt.SmoothTransformation
-            ))
-            details_layout.addWidget(full_preview)
-        details = QLabel(f"Name read as: {matched_item.raw_ocr}")
-        details.setObjectName("Muted")
-        details.setTextFormat(Qt.PlainText)
-        details.setWordWrap(True)
-        details.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        details.setMinimumWidth(0)
-        details.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        details_layout.addWidget(details)
-        self.scan_details.hide()
-        layout.addWidget(self.scan_details)
-
-        buttons = QHBoxLayout()
-        buttons.setSpacing(10)
-        self.confirm_button = _button("Skip item", C_BG3, C_TEXT)
-        cancel = _button("Cancel", C_BG3, C_TEXT)
-        for button in (cancel, self.confirm_button):
-            button.setMinimumHeight(max(40, control_height))
-            button.setAutoDefault(False)
-        cancel.setMinimumWidth(100)
-        self.confirm_button.setMinimumWidth(220)
-        self.confirm_button.clicked.connect(self._confirm)
-        self.action_combo.currentIndexChanged.connect(self._update_action_button)
-        self.quantity_editor.valueChanged.connect(self._update_listing_summary)
-        self.price_editor.valueChanged.connect(self._update_listing_summary)
-        self.quantity_editor.edit.textChanged.connect(self._update_listing_summary)
-        self.price_editor.edit.textChanged.connect(self._update_listing_summary)
-        cancel.clicked.connect(self.reject)
-        buttons.addWidget(cancel)
-        buttons.addStretch()
-        buttons.addWidget(self.confirm_button)
-        root_layout.addLayout(buttons)
-        layout.addStretch()
-        self._update_action_button()
-        self.resize(self.minimumWidth(), 1)
-        self._resize_review()
-        self.quantity_editor.edit.setFocus()
-
-    def _resize_review(self):
-        self.review_content.layout().activate()
-        margins = self.layout().contentsMargins()
-        footer = self.layout().itemAt(1).sizeHint().height()
-        height = (
-            self.review_content.sizeHint().height() + margins.top() + margins.bottom()
-            + self.layout().spacing() + footer
-        )
-        self.resize(self.width(), min(height, self.screen().availableGeometry().height() - 80))
-
-    def _toggle_scan_details(self, expanded: bool):
-        self.scan_details.setVisible(expanded)
-        self.details_toggle.setText("▾ Scan details" if expanded else "▸ Scan details")
-        self._resize_review()
-        if expanded:
-            self.review_scroll.ensureWidgetVisible(self.scan_details, 0, 12)
-
-    def _update_listing_summary(self, _value=None):
-        if self.action_combo.currentData() == "SKIP":
-            self.listing_summary.setText("This item will be skipped.")
-            return
-        quantity = self.quantity_editor.value()
-        price = self.price_editor.value()
-        self.listing_summary.setText(
-            f"{quantity} {'copy' if quantity == 1 else 'copies'}  ·  {price}p each  ·  {quantity * price:,}p total"
-        )
-
-    def _apply_price_preset(self, price_info: PriceInfo):
-        mode = self.price_preset.currentText()
-        if mode == "Current listing" and self.existing_listing is not None:
-            price = self.existing_listing.platinum
-        elif mode == "Quicksell":
-            price = price_info.lowest_sell_price
-        elif mode == "Most Common -1":
-            price = price_info.suggested_listing_price - 1
-        elif mode == "Most Common -2":
-            price = price_info.suggested_listing_price - 2
-        elif mode == "Lowest -1p":
-            price = price_info.lowest_sell_price - 1
-        elif mode == "Lowest +1p":
-            price = price_info.lowest_sell_price + 1
-        elif mode == "Lowest +2p":
-            price = price_info.lowest_sell_price + 2
-        elif mode == "Lowest +3p":
-            price = price_info.lowest_sell_price + 3
-        else:
-            price = price_info.suggested_listing_price
-        self.price_editor.setValue(max(config.MIN_LISTING_PRICE, int(price)))
-
-    def _update_action_button(self, _index: int = -1):
-        action = self.action_combo.currentData()
-        if action == "UPDATE":
-            self.confirm_button.setText("Update existing listing")
-            background, foreground = C_BLUE, "white"
-        elif action == "CREATE":
-            self.confirm_button.setText("Create listing")
-            background, foreground = C_GREEN, "white"
-        else:
-            self.confirm_button.setText("Skip item")
-            background, foreground = C_BG3, C_TEXT
-        self.confirm_button.setProperty("sidro_theme_background_role", _theme_role_for_color(background))
-        self.confirm_button.setProperty("sidro_theme_text_role", _theme_role_for_color(foreground))
-        self.confirm_button.setProperty("sidro_theme_background_fallback", background)
-        self.confirm_button.setProperty("sidro_theme_text_fallback", foreground)
-        _refresh_themed_button(self.confirm_button)
-        self._update_listing_summary()
-
-    def _confirm(self):
-        self.quantity = self.quantity_editor.value()
-        self.selected_action = str(self.action_combo.currentData() or "SKIP")
-        self.result_value = UserDecision.CONFIRMED
-        self.accept()
-
-
 class ScreenSelectionOverlay(QDialog):
     """Fullscreen drag-to-select overlay backed by a frozen screen image."""
 
@@ -2009,7 +1665,7 @@ class InventoryReviewDialog(QDialog):
 
         self.table = QTableWidget(0, 10 if self.is_reward_queue_review else 8)
         self.table.setHorizontalHeaderLabels(
-            ["List", "Reward", "Queued", "WFM Qty", "Lowest", "Common", "Highest", "Price", "WFM Action", "Skip listing"]
+            ["List", "Reward", "Queued", "WFM Qty", "Lowest", "Common", "Highest", "Price", "WFM Action", "Don't list"]
             if self.is_reward_queue_review
             else ["Use", "Item", "Quantity", "Lowest", "Most Common", "Highest", "Price", "Action"]
         )
@@ -2047,9 +1703,9 @@ class InventoryReviewDialog(QDialog):
         non_prime_btn = _button("Non-Prime")
         unlisted_btn = _button("Select unlisted")
         none_btn = _button("None")
-        update_all = _button("UPDATE", C_BLUE, "white")
+        update_all = _button("List" if self.is_reward_queue_review else "UPDATE", C_BLUE, "white")
         delete_all = _button("DELETE", C_RED, "white")
-        skip_all = _button("SKIP")
+        skip_all = _button("Don't list all" if self.is_reward_queue_review else "SKIP")
         if self.is_reward_queue_review:
             delete_all.hide()
         all_btn.clicked.connect(lambda: self._set_all(True))
@@ -2059,14 +1715,17 @@ class InventoryReviewDialog(QDialog):
         none_btn.clicked.connect(lambda: self._set_all(False))
         update_all.clicked.connect(lambda: self._set_all_actions("UPDATE"))
         delete_all.clicked.connect(lambda: self._set_all_actions("DELETE"))
-        skip_all.clicked.connect(lambda: self._set_all_actions("SKIP"))
+        if self.is_reward_queue_review:
+            skip_all.clicked.connect(lambda: self._tick_dont_list(range(self.table.rowCount())))
+        else:
+            skip_all.clicked.connect(lambda: self._set_all_actions("SKIP"))
         selection_bar.addWidget(all_btn)
         selection_bar.addWidget(prime_btn)
         selection_bar.addWidget(non_prime_btn)
         selection_bar.addWidget(unlisted_btn)
         selection_bar.addWidget(none_btn)
         selection_bar.addWidget(self.selection_feedback)
-        selection_bar.addWidget(QLabel("Set WFM actions:" if self.is_reward_queue_review else "Set all actions:"))
+        selection_bar.addWidget(QLabel("Set all:" if self.is_reward_queue_review else "Set all actions:"))
         selection_bar.addWidget(update_all)
         if not self.is_reward_queue_review:
             selection_bar.addWidget(delete_all)
@@ -2076,12 +1735,13 @@ class InventoryReviewDialog(QDialog):
         if self.is_reward_queue_review:
             queue_actions = QHBoxLayout()
             queue_actions.addWidget(QLabel(
-                "These rewards are already in your Item List. Tick Skip listing on a reward to keep it there "
-                "without posting it (Apply selected or the button)."
+                "These rewards are already in your Item List. Tick Don't list on a reward to keep it there "
+                "without posting it, then press Apply selected."
             ))
             queue_actions.addStretch()
-            remove_rewards = _button("Keep in Item List, don\u0027t list", C_BLUE, "white")
-            remove_rewards.clicked.connect(self._remove_selected_queued_rewards)
+            remove_rewards = _button("Keep in Item List", C_BLUE, "white")
+            remove_rewards.setToolTip("Ticks Don't list on the rewards you have ticked in the List column.")
+            remove_rewards.clicked.connect(self._tick_dont_list_for_selected)
             queue_actions.addWidget(remove_rewards)
             review_layout.addLayout(queue_actions)
             layout.addWidget(review_page, 1)
@@ -2212,12 +1872,12 @@ class InventoryReviewDialog(QDialog):
                     qty.setEnabled(False)
                     sell_price.setEnabled(False)
                 else:
-                    action.addItems(["SKIP", "UPDATE"] if existing else ["UPDATE"])
-                    action.setCurrentText("SKIP" if existing else "UPDATE")
+                    # One choice: List. If it is already listed, the new copies are added to that listing.
+                    action.addItem("List", "UPDATE")
                 self.table.setCellWidget(row, 8, action)
                 self.table.setCellWidget(row, 9, _StyledCheckBox())
                 self.table.cellWidget(row, 9).setToolTip(
-                    "Tick, then use 'Keep in Item List, don't list' to clear this reward without posting it."
+                    "Tick to keep this reward in your Item List without listing it."
                 )
             else:
                 qty = NumberEditor(1, 999, item.quantity)
@@ -2301,16 +1961,42 @@ class InventoryReviewDialog(QDialog):
             is_unlisted = url not in self.existing_listing_map
             self.table.cellWidget(row, 0).setChecked(is_unlisted)
             action = self.table.cellWidget(row, 8 if self.is_reward_queue_review else 7)
-            if is_unlisted and action.findText("UPDATE") >= 0:
-                action.setCurrentText("UPDATE")
+            index = self._action_index(action, "UPDATE")
+            if is_unlisted and index >= 0:
+                action.setCurrentIndex(index)
+
+    @staticmethod
+    def _action_index(combo, action_text: str) -> int:
+        """Find an action by its stored value (the reward review shows 'List' for UPDATE)."""
+        index = combo.findData(action_text)
+        return index if index >= 0 else combo.findText(action_text)
+
+    def _row_action(self, row: int) -> str:
+        combo = self.table.cellWidget(row, 8 if self.is_reward_queue_review else 7)
+        data = combo.currentData()
+        return str(data) if data else combo.currentText()
+
+    def _tick_dont_list(self, rows):
+        """Reward review: mark rows as 'Don't list' (kept in the Item List, never posted)."""
+        for row in rows:
+            box = self.table.cellWidget(row, 9)
+            if box is not None and box.isEnabled():
+                box.setChecked(True)
+
+    def _tick_dont_list_for_selected(self):
+        rows = [row for row in range(self.table.rowCount()) if self.table.cellWidget(row, 0).isChecked()]
+        self._tick_dont_list(rows)
 
     def _set_all_actions(self, action_text: str):
         for row in range(self.table.rowCount()):
             action = self.table.cellWidget(row, 8 if self.is_reward_queue_review else 7)
-            if action.findText(action_text) >= 0:
-                action.setCurrentText(action_text)
+            index = self._action_index(action, action_text)
+            if index >= 0:
+                action.setCurrentIndex(index)
                 if action_text in {"UPDATE", "DELETE"}:
                     self.table.cellWidget(row, 0).setChecked(True)
+                    if self.is_reward_queue_review:
+                        self.table.cellWidget(row, 9).setChecked(False)
             elif action_text == "DELETE":
                 self.table.cellWidget(row, 0).setChecked(False)
 
@@ -2327,8 +2013,7 @@ class InventoryReviewDialog(QDialog):
                     self.removed_queued_rewards[skip_url] = reward
                 continue
             use = self.table.cellWidget(row, 0).isChecked()
-            action_column = 8 if self.is_reward_queue_review else 7
-            action = self.table.cellWidget(row, action_column).currentText()
+            action = self._row_action(row)
             if not use or action not in {"UPDATE", "DELETE"}:
                 continue
             url = self.table.verticalHeaderItem(row).text()
@@ -4854,7 +4539,7 @@ class OwnedInventoryPage(QWidget):
         rows = []
         for url, qty in owned.items():
             item = self.store.items[url]
-            listing = self.store.listings.get(url)
+            listing = self.store.listing_for_item(url)   # arcanes: the ranked listing counts too
             set_slug = self.catalog.set_slug_for(url)
             status = self.catalog.status_for(set_slug, owned) if set_slug else None
             rows.append((item, qty, listing, status, bool(set_slug and set_slug in mastery)))
@@ -5420,10 +5105,16 @@ class ArcanesPage(QWidget):
     MODES = ["Most Common", "Most Common -1", "Most Common -2", "Quicksell", "Lowest -1p",
              "Lowest +1p", "Lowest +2p", "Lowest +3p"]
 
-    def __init__(self, get_api: Callable[[], object] | None = None, notify: Callable[..., None] | None = None):
+    def __init__(
+        self,
+        get_api: Callable[[], object] | None = None,
+        notify: Callable[..., None] | None = None,
+        on_listings_changed: Callable[[dict], None] | None = None,
+    ):
         super().__init__()
         self.get_api = get_api or (lambda: None)
         self._notify_cb = notify
+        self._on_listings_changed = on_listings_changed   # lets the Trading Post show the new listings
         self.catalog = ArcaneCatalog()
         self.stock = ArcaneStock()
         self.prices: dict[str, object] = {}       # stock key -> PriceInfo | error str
@@ -5799,6 +5490,11 @@ class ArcanesPage(QWidget):
         self.reload() if not message.startswith("Arcane list") else self._names_model.setStringList(sorted(self.catalog.names()))
         self._fill_market_cells()
         self._update_summary()
+        if self._on_listings_changed is not None and message.startswith(("Arcane listings", "Deleted")):
+            try:
+                self._on_listings_changed(self.listings)
+            except Exception as e:
+                print(f"[Arcanes] Could not refresh the Trading Post: {e}")
         self._notify(message, status, 5000)
 
 
@@ -6124,7 +5820,8 @@ class Dashboard(QMainWindow):
         )
         self.mastery_tab_index = self.tabs.addTab(self.mastery_page, "mastery", "Mastery List")
         self.arcanes_page = ArcanesPage(
-            lambda: self.get_api(), lambda message, status="info", ms=3500: self._notify(message, status, ms)
+            lambda: self.get_api(), lambda message, status="info", ms=3500: self._notify(message, status, ms),
+            self._arcane_listings_changed,
         )
         self.arcanes_tab_index = self.tabs.addTab(self.arcanes_page, "arcane", "Arcanes")
         from trading_tools_ui import TradingToolsPage   # imported late: it imports this module
@@ -6435,6 +6132,13 @@ class Dashboard(QMainWindow):
         if hasattr(self, "owned_inventory"):
             self.owned_inventory.reload()
             self.mastery_page.reload()
+
+    def _arcane_listings_changed(self, listing_map: dict):
+        """The Arcanes tab changed the market listings: bring the Trading Post up to date."""
+        self.store.replace_listings(listing_map)
+        self.market_prices.clear()
+        self.refresh_rows()
+        self.preview_prices()
 
     def _send_to_watchlist(self, items: list[tuple[str, str]]):
         """Open Trading Tools, Watchlist and add items sent from the Item List or Mastery List."""
@@ -6850,6 +6554,11 @@ class Dashboard(QMainWindow):
 
         ``reduce`` maps url -> quantity to leave on the listing: those listings are lowered, not deleted.
         """
+        def take_parts(url: str, quantity: int):
+            """A sold Set uses up its parts, so they leave the Item List too."""
+            if url.endswith("_set"):
+                self.store.take_set_parts(url, quantity, self.owned_inventory.catalog)
+
         def action() -> str:
             notes = []
             if reduce:
@@ -6864,6 +6573,7 @@ class Dashboard(QMainWindow):
                     if (sales or {}).get(url) and listing is not None and int(listing.quantity) == remaining:
                         name, quantity, platinum = sales[url]
                         self.store.add_sale(url, name, quantity, platinum, take_from_items=True)
+                        take_parts(url, quantity)
             message = delete() if urls else ""
             if notes:
                 message = " ".join(n for n in (*notes, message) if n)
@@ -6880,6 +6590,7 @@ class Dashboard(QMainWindow):
                             gone.remove(url)
                         else:
                             self.store.add_sale(url, name, quantity, platinum)
+                        take_parts(url, quantity)
                 removed = self.store.remove_items(gone)
                 if removed:
                     message += f" Removed {removed} from the Item List."
@@ -7123,24 +6834,6 @@ class UIController:
 
         self.invoke(_show)
 
-    def ask_confirmation(
-        self,
-        matched_item: MatchedItem,
-        price_info: PriceInfo,
-        listing_price: int,
-        quantity: int = 1,
-        preview_image: QImage | None = None,
-        existing_listing: ExistingListing | None = None,
-    ):
-        return self.review_single_item(
-            matched_item,
-            price_info,
-            listing_price,
-            quantity=quantity,
-            preview_image=preview_image,
-            existing_listing=existing_listing,
-        )
-
     def snip_screen_area(self):
         def _show():
             screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
@@ -7163,34 +6856,6 @@ class UIController:
             rgb = rgb.reshape(image.height(), image.width(), 3)
             return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR).copy(), dialog.selected_image.copy()
 
-        return self.invoke(_show, wait=True)
-
-    def review_single_item(
-        self,
-        matched_item: MatchedItem,
-        price_info: PriceInfo,
-        listing_price: int,
-        quantity: int = 1,
-        preview_image: QImage | None = None,
-        existing_listing: ExistingListing | None = None,
-    ):
-        def _show():
-            dialog = ConfirmationDialog(
-                matched_item,
-                price_info,
-                listing_price,
-                quantity=quantity,
-                preview_image=preview_image,
-                existing_listing=existing_listing,
-            )
-            if dialog.exec() == QDialog.Accepted:
-                return (
-                    UserDecision.CONFIRMED,
-                    dialog.quantity,
-                    dialog.price_editor.value(),
-                    dialog.selected_action,
-                )
-            return UserDecision.CANCELLED, quantity, listing_price, "SKIP"
         return self.invoke(_show, wait=True)
 
     def toast(self, message: str, status: str = "info", duration_ms: int = 3500):

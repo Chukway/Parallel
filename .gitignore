@@ -253,6 +253,7 @@
 !/tests/test_ocr_pack_validation.py
 !/tests/test_ocr_subprocesses.py
 !/tests/test_public_source.py
+!/tests/test_ranked_listings.py
 !/tests/test_release_contract.py
 !/tests/test_release_materials.py
 !/tests/test_release_regressions.py

@@ -415,6 +415,47 @@ class UIReleaseTests(unittest.TestCase):
         self.assertEqual([i.url_name for i in dialog.selected_items], ["list_prime"])
         self.assertEqual(list(dialog.removed_queued_rewards), ["skip_prime"])
 
+    def test_reward_review_has_list_and_dont_list_only(self):
+        from pillar3_api import PriceInfo
+        store = self.store()
+        for url in ("a_prime", "b_prime"):
+            store.queue_reward(url, url)
+        items = [
+            SimpleNamespace(url_name=url, display_name=url, quantity=1, _queued_reward_quantity=1,
+                            _reward_existing_quantity=0, grid_position=(0, 0))
+            for url in ("a_prime", "b_prime")
+        ]
+        prices = {i.url_name: PriceInfo(i.url_name, 10, 10.0, 3, 10, []) for i in items}
+        # b_prime is already listed: its action must still be just "List" (new copies join the listing).
+        existing = {"b_prime": SimpleNamespace(order_id="o", item_id="i", platinum=10, quantity=2, visible=True)}
+        dialog = self.ui.InventoryReviewDialog(
+            items, prices, existing, queued_reward_rows=list(store.get_reward_queue().values()))
+        self.addCleanup(dialog.deleteLater)
+        headers = [dialog.table.horizontalHeaderItem(c).text() for c in range(dialog.table.columnCount())]
+        self.assertEqual(headers[-1], "Don't list")
+        for row in range(2):
+            combo = dialog.table.cellWidget(row, 8)
+            self.assertEqual([combo.itemText(i) for i in range(combo.count())], ["List"])
+        # "Keep in Item List" ticks Don't list on the ticked rows only.
+        dialog.table.cellWidget(0, 0).setChecked(True)
+        dialog.table.cellWidget(1, 0).setChecked(False)
+        dialog._tick_dont_list_for_selected()
+        self.assertTrue(dialog.table.cellWidget(0, 9).isChecked())
+        self.assertFalse(dialog.table.cellWidget(1, 9).isChecked())
+        # "Don't list all" ticks every row; Apply then posts nothing and clears them from the queue.
+        dialog._tick_dont_list(range(dialog.table.rowCount()))
+        dialog._confirm()
+        self.assertEqual(dialog.selected_items, [])
+        self.assertEqual(sorted(dialog.removed_queued_rewards), ["a_prime", "b_prime"])
+        # Listing again: "List" still maps to a real listing action.
+        fresh = self.ui.InventoryReviewDialog(
+            items, prices, existing, queued_reward_rows=list(store.get_reward_queue().values()))
+        self.addCleanup(fresh.deleteLater)
+        fresh.table.cellWidget(1, 0).setChecked(True)
+        fresh._confirm()
+        self.assertEqual([i.url_name for i in fresh.selected_items], ["b_prime"])
+        self.assertEqual(fresh.selected_items[0]._listing_action, "UPDATE")
+
     def test_single_item_review_can_add_to_item_list_without_listing(self):
         from pillar3_api import PriceInfo
         item = SimpleNamespace(url_name="a_prime", display_name="A Prime", quantity=1,
