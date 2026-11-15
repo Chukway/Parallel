@@ -17,7 +17,7 @@ from settings_validation import MAX_SETTINGS_BYTES, sanitize_settings
 APP_NAME = "Parallel"
 APP_SLUG = "Parallel"
 LEGACY_APP_SLUG = "Sidro"   # data folder used before the rename; copied once, never deleted
-APP_VERSION = "1.2.1"
+APP_VERSION = "1.2.2"
 # Parallel is a fork with no release feed of its own; never offer the original
 # project's releases as updates. Set to True only after pointing update_core at your own repo.
 UPDATE_SOURCE_ENABLED = False
@@ -517,7 +517,7 @@ TRADE_MY_NAME = WFM_INGAME_NAME
 OCR_NAME_ALIASES = {}  # Account name -> user-approved OCR spellings.
 TRADE_SUCCESS_TIMEOUT_SECONDS = 180
 TRADE_SUCCESS_POLL_SECONDS = 0.05
-TRADE_SUCCESS_REQUIRED_HITS = 2
+TRADE_SUCCESS_REQUIRED_HITS = 1   # the dialog text itself is read, so one confirmed read is enough
 TRADE_SUCCESS_REQUIRE_TEXT = True
 TRADE_SUCCESS_USE_OCR_FALLBACK = True
 TRADE_DISABLE_GLOBAL_ITEM_MATCH = False

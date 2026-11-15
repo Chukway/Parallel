@@ -89,7 +89,9 @@ class TradeScanner:
         # below. Verify our name only at the top and scan only our six slots.
         row_offset = int(getattr(config, "TRADE_PLAYER_ROW_Y_OFFSET", 466))
         top_name = self._read_account_name(frame)
-        bottom_name = self._read_account_name(frame, row_offset)
+        # The other player's name is only ever shown in the diagnostic log, so it is
+        # not read during live scanning (it cost one extra OCR pass every poll).
+        bottom_name = self._read_account_name(frame, row_offset) if log else ""
         account_name_seen = top_name
         name_verified = _trade_name_matches(config.TRADE_MY_NAME, top_name)
         own_side = "top" if name_verified else "unknown"
@@ -232,8 +234,6 @@ class TradeScanner:
         self._title_gate_cache_at = now
         self._title_gate_cache_result = rejected
         self._title_gate_cache_text = text
-        if rejected:
-            print(f"[Trade] Header gate rejected inventory screen title: '{text}'")
         return rejected
 
     def _read_account_name(self, frame: np.ndarray, row_offset: int = 0) -> str:

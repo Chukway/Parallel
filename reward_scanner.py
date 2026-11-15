@@ -6,9 +6,10 @@ requests and on-screen tags are handled by the application and Qt UI.
 
 from __future__ import annotations
 
+import re
 import time
 import zlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import cv2
 import numpy as np
@@ -558,9 +559,50 @@ class RewardScanner:
             score >= matched.match_score - 2 and name.casefold().partition(" prime ")[2] != component
             for name, score in getattr(matched, "alternatives", []) or []
         ):
+            resolved = self._resolve_wrapped_tie(matched, normalized)
+            if resolved is not None:
+                return resolved
             print(f"[Reward] Ambiguous reward component; retrying instead of guessing: '{normalized}'")
             return None
         return matched
+
+    def _resolve_wrapped_tie(self, matched, normalized: str):
+        """Break a tie between names when one name is fully spelled out by the OCR text.
+
+        A wrapped label can come out in scrambled word order, e.g. "Sevagoth Prime
+        Blueprint Neuroptics", which ties "Sevagoth Prime Blueprint" with
+        "Sevagoth Prime Neuroptics Blueprint". Only a name whose every word appears
+        in the OCR text counts, and only the one explaining the most words wins.
+        """
+        ocr_words = {word.casefold() for word in re.findall(r"[A-Za-z0-9]+", normalized)}
+        tied = [(matched.display_name, matched.match_score)] + [
+            (name, score)
+            for name, score in getattr(matched, "alternatives", []) or []
+            if score >= matched.match_score - 2
+        ]
+        spelled = []
+        for name, score in tied:
+            words = [word.casefold() for word in re.findall(r"[A-Za-z0-9]+", name)]
+            if words and all(word in ocr_words for word in words):
+                spelled.append((len(words), name, score))
+        if not spelled:
+            return None
+        spelled.sort(reverse=True)
+        if len(spelled) > 1 and spelled[0][0] == spelled[1][0]:
+            return None
+        _, name, score = spelled[0]
+        if name == matched.display_name:
+            return matched
+        url_name = self.items_cache.url_name(name) or ""
+        if not url_name:
+            return None
+        return replace(
+            matched,
+            display_name=name,
+            url_name=url_name,
+            match_score=max(int(score), int(matched.match_score)),
+            alternatives=[(n, s) for n, s in tied if n != name],
+        )
 
     def _matched_alternatives(self, matched) -> list[tuple[str, str, int]]:
         alternatives: list[tuple[str, str, int]] = []

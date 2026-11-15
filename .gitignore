@@ -263,6 +263,7 @@
 !/tests/test_reward_selection.py
 !/tests/test_sell_selected.py
 !/tests/test_set_catalog.py
+!/tests/test_set_trades.py
 !/tests/test_support_reminders.py
 !/tests/test_token_capture.py
 !/tests/test_token_dialog_hook.py

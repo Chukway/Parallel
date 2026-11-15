@@ -25,6 +25,7 @@ from account_store import AccountStore, listing_key, split_listing_key
 import trade_tools
 from reward_history import RewardHistory
 from concurrent.futures import ThreadPoolExecutor
+from collections import Counter
 from set_catalog import SetCatalog
 from pillar2_ocr import OCRProcessor, FuzzyMatcher, ItemsCache, normalize_ocr_text
 from pillar3_api import ExistingListing, WarframeMarketAPI, WFMAuthError, WFMApiError, PriceInfo
@@ -1148,6 +1149,51 @@ class App:
         except Exception as e:
             print(f"[Trade] Could not update the parts of {url_name}: {e}")
 
+    def _combine_parts_into_sets(self, sold_counts, existing_map):
+        """Turn traded parts that complete a set into a sale of that set.
+
+        Each set uses the recipe quantities once (2 blades + 1 grip + 1 blueprint is one
+        set); parts left over stay as ordinary part sales, and listings of the parts are
+        never touched for the parts that went into a set. A set is only formed when you
+        actually have a listing for it, otherwise the parts are sold as parts as before.
+        """
+        counts = Counter(sold_counts)
+        if len(counts) < 2:
+            return counts
+        if getattr(self, "_set_catalog", None) is None:
+            self._set_catalog = SetCatalog()
+        catalog = self._set_catalog
+        unknown = [slug for slug in counts if not catalog.is_known(slug)]
+        if unknown:
+            try:
+                catalog.refresh(unknown)
+            except Exception as e:
+                print(f"[Trade] Could not look up set recipes: {e}")
+
+        owner: dict[str, list[str]] = {}
+        for slug in list(counts):
+            set_slug = catalog.set_slug_for(slug)
+            if set_slug and set_slug != slug:
+                owner.setdefault(set_slug, []).append(slug)
+
+        for set_slug in owner:
+            status = catalog.status_for(set_slug, {})
+            if status is None or not status.parts:
+                continue
+            listed = existing_map.get(self.api.get_item_id(set_slug)) or existing_map.get(set_slug)
+            if listed is None:
+                continue
+            made = min(counts.get(part.slug, 0) // max(1, part.needed) for part in status.parts)
+            if made <= 0:
+                continue
+            for part in status.parts:
+                counts[part.slug] -= made * max(1, part.needed)
+                if counts[part.slug] <= 0:
+                    del counts[part.slug]
+            counts[set_slug] += made
+            print(f"[Trade] Traded parts make {made} {status.set_name}; selling it as a set.")
+        return counts
+
     def _decrement_listings_after_trade(self, traded_items):
         if not config.ENABLE_LIVE_LISTING:
             self.ui.alert(
@@ -1162,6 +1208,11 @@ class App:
         existing_map = self.api.get_existing_sell_listing_map()
         self.account_store.replace_listings(existing_map)
         updated, deleted, missing = 0, 0, 0
+
+        try:
+            sold_counts = self._combine_parts_into_sets(sold_counts, existing_map)
+        except Exception as e:
+            print(f"[Trade] Could not group parts into sets: {e}")
 
         for url_name, sold_count in sold_counts.items():
             item_id = self.api.get_item_id(url_name)

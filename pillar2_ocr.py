@@ -1319,7 +1319,6 @@ class FuzzyMatcher:
         best_name, best_score = _choose_best_candidate(normalized_text, candidates)
 
         if best_score < config.FUZZY_MATCH_THRESHOLD:
-            print(f"[OCR] Best match '{best_name}' scored {best_score} — below threshold {config.FUZZY_MATCH_THRESHOLD}, skipping.")
             return None
 
         url = self._cache.url_name(best_name) or ""
