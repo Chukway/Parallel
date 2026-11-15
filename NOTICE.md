@@ -10,6 +10,11 @@ original copyright notice and license text are kept in [LICENSE](LICENSE).
 - Rank-aware pricing and listing for arcanes.
 - Extra selling presets (Most Common -2, Lowest -1p).
 - A new look with selectable themes and accent colours.
+- Trackers (Live, Daily, Weekly, Archimedea, Arbitration, News) in `tracker_data.py` and `trackers_ui.py`.
+  Live game state comes from the community API warframestat.us. The bundled Arbitration schedule
+  (`tracker_arbitration_schedule.txt`) and tier ratings (`tracker_arbitration_tiers.json`, by the
+  Arbitration Goons community) are the data published by browse.wf, and the node names
+  (`tracker_sol_nodes.json`) are from WFCD/warframe-worldstate-data (MIT).
 
 ## What Parallel is not
 

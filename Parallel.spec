@@ -13,7 +13,7 @@ for distribution in ("rapidocr", "onnxruntime", "numpy"):
     datas.extend(copy_metadata(distribution))
 for distribution in ("opencv-contrib-python", "pyclipper", "shapely"):
     datas.extend(copy_metadata(distribution, recursive=True))
-for filename in ("items_cache.json", "item_ids_cache.json", "ducats_cache.json", "Parallel.png", "Parallel.ico", "NOTICE.md", "LICENSE"):
+for filename in ("items_cache.json", "item_ids_cache.json", "ducats_cache.json", "tracker_arbitration_schedule.txt", "tracker_arbitration_tiers.json", "tracker_sol_nodes.json", "Parallel.png", "Parallel.ico", "NOTICE.md", "LICENSE"):
     path = ROOT / filename
     if path.exists():
         datas.append((str(path), "."))

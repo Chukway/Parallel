@@ -230,6 +230,35 @@ def _ui_icon(name: str, color: str) -> QIcon:
     elif name == "trade":
         lines([(4, 8), (20, 8), (16, 4)])
         lines([(20, 16), (4, 16), (8, 20)])
+    elif name == "live":
+        painter.drawEllipse(QRectF(10, 10, 4, 4))
+        painter.drawArc(QRectF(6, 6, 12, 12), 135 * 16, 90 * 16)
+        painter.drawArc(QRectF(6, 6, 12, 12), -45 * 16, 90 * 16)
+        painter.drawArc(QRectF(2, 2, 20, 20), 135 * 16, 90 * 16)
+        painter.drawArc(QRectF(2, 2, 20, 20), -45 * 16, 90 * 16)
+    elif name == "daily":
+        painter.drawEllipse(QRectF(8, 8, 8, 8))
+        for start, end in (((12, 2), (12, 5)), ((12, 19), (12, 22)), ((2, 12), (5, 12)), ((19, 12), (22, 12)),
+                           ((5, 5), (7, 7)), ((17, 17), (19, 19)), ((5, 19), (7, 17)), ((17, 7), (19, 5))):
+            lines([start, end])
+    elif name == "weekly":
+        painter.drawRect(QRectF(3, 5, 18, 16))
+        lines([(3, 10), (21, 10)])
+        lines([(8, 2), (8, 7)])
+        lines([(16, 2), (16, 7)])
+        lines([(8, 15), (11, 18), (16, 13)])
+    elif name == "archimedea":
+        lines([(6, 3), (18, 3), (18, 7), (13, 12), (18, 17), (18, 21), (6, 21), (6, 17), (11, 12), (6, 7)], True)
+    elif name == "arbitration":
+        painter.drawEllipse(QRectF(3, 3, 18, 18))
+        painter.drawEllipse(QRectF(8, 8, 8, 8))
+        lines([(12, 1), (12, 5)])
+        lines([(12, 19), (12, 23)])
+    elif name == "news":
+        painter.drawRect(QRectF(4, 3, 16, 18))
+        lines([(8, 8), (16, 8)])
+        lines([(8, 12), (16, 12)])
+        lines([(8, 16), (13, 16)])
     painter.end()
     icon = QIcon(pixmap)
     _UI_ICONS[key] = icon
@@ -775,6 +804,17 @@ class NavTabs(QFrame):
         self.refresh_icons()
         return index
 
+    def addGroup(self, text: str):
+        """A small heading in the rail (not a page)."""
+        label = QLabel(text.upper())
+        label.setObjectName("NavGroup")
+        self._nav.addWidget(label)
+
+    def setTabText(self, index: int, text: str):
+        if 0 <= index < len(self._buttons):
+            self._texts[index] = text
+            self._buttons[index].setText(text)
+
     def count(self) -> int:
         return len(self._buttons)
 
@@ -933,13 +973,17 @@ def _apply_app_style(app: QApplication):
             border-radius: 0;
         }}
         QFrame#NavRail QLabel {{ background: transparent; }}
+        QLabel#NavGroup {{
+            color: {C_MUTED}; font-size: {max(font_size - 3, 8)}px; font-weight: 700;
+            letter-spacing: 1px; padding: 10px 4px 3px 4px;
+        }}
         QPushButton#NavItem {{
             background: transparent;
             color: {C_MUTED};
             border: 0;
             border-left: 2px solid transparent;
             border-radius: 0;
-            padding: 11px 10px;
+            padding: 8px 10px;
             text-align: left;
             font-weight: 600;
         }}
@@ -2938,6 +2982,11 @@ class SettingsDialog(QDialog):
             hotkey_grid.addWidget(box, row_idx, 1)
         hotkey_layout.addLayout(hotkey_grid)
         hotkey_layout.addStretch()
+
+        tracker_hub = getattr(parent, "tracker_hub", None)
+        if tracker_hub is not None:
+            from trackers_ui import build_settings_tab
+            build_settings_tab(make_tab("Trackers"), tracker_hub)
 
         updates_layout = make_tab("Updates")
         updates_title = QLabel("Parallel updates")
@@ -5811,6 +5860,7 @@ class Dashboard(QMainWindow):
         footer.addWidget(update)
         inventory_layout.addWidget(footer_frame)
 
+        self.tabs.addGroup("Trading")
         self.tabs.addTab(inventory_tab, "inventory", "Trading Post")
         self.owned_inventory = OwnedInventoryPage(
             self.store, lambda message, status, ms: self._notify(message, status, ms)
@@ -5830,6 +5880,7 @@ class Dashboard(QMainWindow):
             self.store, lambda: self.get_api(), lambda message, status="info", ms=3500: self._notify(message, status, ms)
         )
         self.trading_tab_index = self.tabs.addTab(self.trading_page, "trade", "Trading Tools")
+        self._build_trackers()
         self.owned_inventory.get_api = lambda: self.get_api()
         self.owned_inventory.combine_set = self.on_combine_set
         self.owned_inventory.update_listings = lambda updates: self.on_update_prices(updates, self._strategy())
@@ -5851,6 +5902,76 @@ class Dashboard(QMainWindow):
         all_hidden.clicked.connect(lambda: self._set_all_visibility(False))
         inventory_status.addWidget(all_visible)
         inventory_status.addWidget(all_hidden)
+
+    # ── Trackers (Live, Daily, Weekly, Archimedea, Arbitration, News) ──
+
+    def _build_trackers(self):
+        from trackers_ui import (
+            ArbitrationPage, ArchimedeaPage, DailyPage, LazyPage, LivePage, NewsPage, TrackerHub, TrayController,
+            WeeklyPage,
+        )
+        self.tracker_hub = hub = TrackerHub(parent=self)
+        self.tracker_page_index: dict[str, int] = {}
+        self.tabs.addGroup("Trackers")
+        for key, icon, page_class in (
+            ("live", "live", LivePage), ("daily", "daily", DailyPage), ("weekly", "weekly", WeeklyPage),
+            ("archimedea", "archimedea", ArchimedeaPage), ("arbitration", "arbitration", ArbitrationPage),
+            ("news", "news", NewsPage),
+        ):
+            page = LazyPage(lambda cls=page_class: cls(hub))
+            self.tracker_page_index[key] = self.tabs.addTab(page, icon, hub.state.page_title(key))
+        hub.go_to_page = self._open_tracker_page
+        hub.go_to_baro = self._open_baro_section
+        hub.layout_changed.connect(self._retitle_tracker_tabs)
+        hub.notify.connect(self._tracker_notification)
+        self._quitting = False
+        self.tracker_tray = TrayController(self, hub, self.windowIcon() if not self.windowIcon().isNull() else _app_icon(), self.quit_app)
+        if QGuiApplication.platformName() != "offscreen":   # tests run offscreen and must not touch the network
+            hub.start()
+
+    def _retitle_tracker_tabs(self):
+        for key, index in self.tracker_page_index.items():
+            self.tabs.setTabText(index, self.tracker_hub.state.page_title(key))
+
+    def _open_tracker_page(self, key: str):
+        index = self.tracker_page_index.get(key)
+        if index is not None:
+            self.tabs.setCurrentIndex(index)
+
+    def _open_baro_section(self):
+        self.tabs.setCurrentIndex(self.trading_tab_index)
+        self.trading_page.tabs.setCurrentWidget(self.trading_page.baro)
+        self.trading_page.on_shown()
+
+    def _tracker_notification(self, title: str, text: str):
+        if self.tracker_hub.state.option("notify_sound"):
+            play_alert("info")
+        if self.isVisible() and not self.isMinimized():
+            self._notify(f"{title}: {text}", "info", 6000, quiet=True)
+        else:
+            self.tracker_tray.message(title, text)
+
+    def quit_app(self):
+        """Really quit (the close button only hides to the tray when that is on)."""
+        self._quitting = True
+        self.close()
+        QTimer.singleShot(0, QApplication.instance().quit)   # the window may already be hidden in the tray
+
+    def closeEvent(self, event):
+        tray = getattr(self, "tracker_tray", None)
+        if tray is not None and not self._quitting and tray.should_hide_on_close():
+            # While the window is hidden, a toast closing must not count as "the last window closed".
+            QApplication.instance().setQuitOnLastWindowClosed(False)
+            event.ignore()
+            self.hide()
+            tray.hidden_hint()
+            return
+        QApplication.instance().setQuitOnLastWindowClosed(True)
+        if hasattr(self, "tracker_hub"):
+            self.tracker_hub.stop()
+        if tray is not None:
+            tray.tray.hide()
+        super().closeEvent(event)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -6019,7 +6140,7 @@ class Dashboard(QMainWindow):
             config.RECRUITMENT_CHAT_MESSAGES = [""]
         _save_ui_settings()
 
-    def _notify(self, message: str, status: str = "info", duration_ms: int = 3500, sound: str | None = None):
+    def _notify(self, message: str, status: str = "info", duration_ms: int = 3500, sound: str | None = None, quiet: bool = False):
         if hasattr(self, "summary"):
             self.summary.setText(message)
         sound_event = sound or {
@@ -6028,7 +6149,8 @@ class Dashboard(QMainWindow):
             "error": "error",
             "trade": "trade",
         }.get(status, "info")
-        play_alert(sound_event)
+        if not quiet:
+            play_alert(sound_event)
         if not getattr(config, "VISUAL_NOTIFICATIONS_ENABLED", True):
             return
         toast = Toast(message, status, duration_ms)

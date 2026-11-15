@@ -148,6 +148,23 @@ warframestat.us. Items that cannot be traded show a dash.
 
 Every reward screen Parallel reads is saved here with its prices. If it missed which reward you
 took, select that reward and press **Add to Item List**.
+## Trackers
+
+The **Trackers** group in the sidebar shows what is going on in the game without opening a browser.
+
+- **Live**: Cetus, Orb Vallis, Cambion Drift, Earth and Duviri cycles, the current Arbitration with the next three, Baro, and normal and Steel Path Void Fissures side by side. Bounties, Darvo's deals, alerts, events, invasions, Railjack storms and Steel Path incursions are available but off by default.
+- **Daily**: Sortie and a daily tick list.
+- **Weekly**: Duviri Circuit rotation, Archon Hunt, the Steel Path reward and a weekly tick list. Tick boxes clear themselves at the reset (daily 00:00 UTC, weekly Monday 00:00 UTC).
+- **Archimedea**: this week's Elite Temporal and Elite Deep Archimedea with their missions, debuffs and risks.
+- **Arbitration**: the full hourly schedule with mission, tier and faction filters, local or UTC time.
+- **News**: game news and Nightwave.
+
+Data refreshes every two minutes and timers count down every second. If you are offline the pages keep
+the last data, and the day/night cycles keep running. In **Settings, Trackers** you can turn every card
+on or off, rename cards and pages, and choose notifications. With **Closing the window hides Parallel
+in the system tray** on, the close button keeps Parallel (and its hotkeys) running in the tray; right-click
+the tray icon to open or quit.
+
 ## Reward screen overlay
 
 ![Reward overlay](docs/images/reward-overlay.png)

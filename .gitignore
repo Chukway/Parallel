@@ -266,6 +266,8 @@
 !/tests/test_support_reminders.py
 !/tests/test_token_capture.py
 !/tests/test_token_dialog_hook.py
+!/tests/test_trackers.py
+!/tests/test_trackers_ui.py
 !/tests/test_trade_tools.py
 !/tests/test_tutorial.py
 !/tests/test_ui_redesign.py
@@ -296,6 +298,11 @@
 !/tools/updater_version.txt
 !/tools/verify_public_source.py
 !/tools/write_ocr_requirements.py
+!/tracker_arbitration_schedule.txt
+!/tracker_arbitration_tiers.json
+!/tracker_data.py
+!/tracker_sol_nodes.json
+!/trackers_ui.py
 !/trade_scanner.py
 !/trade_tools.py
 !/trading_tools_ui.py
