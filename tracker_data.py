@@ -71,7 +71,6 @@ DAILY_TICKS = (
     ("sortie", "Sortie"),
     ("syndicates", "Syndicate standing"),
     ("nightwave_daily", "Daily Nightwave acts"),
-    ("login", "Login reward"),
 )
 WEEKLY_TICKS = (
     ("archon", "Archon Hunt"),
