@@ -165,6 +165,19 @@ class TrackerUiTests(unittest.TestCase):
         self.assertFalse(self.hub.state.is_on("incursions"))
         self.assertIsNotNone(incursions)
 
+    def test_dev_builds_never_use_the_tray(self):
+        import config
+        from pathlib import Path as P
+        self.assertTrue(config.IS_DEV_BUILD)  # the tests run from source
+        window = QWidget()
+        tray = tu.TrayController(window, self.hub, window.windowIcon(), lambda: None)
+        self.assertFalse(tray.available)
+        self.assertFalse(tray.should_hide_on_close())
+        # the naming rule used for a built dev copy
+        parts = P(r"C:\Apps\Parallel-Dev\dist\Parallel").parts
+        self.assertTrue(any(p.lower().endswith("-dev") for p in parts))
+        self.assertFalse(any(p.lower().endswith("-dev") for p in P(r"C:\Apps\Parallel-Personal").parts))
+
     def test_tray_hides_instead_of_quitting_only_when_enabled(self):
         window = QWidget()
         quit_calls = []

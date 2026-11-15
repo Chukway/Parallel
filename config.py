@@ -23,6 +23,9 @@ APP_VERSION = "1.2.0"
 UPDATE_SOURCE_ENABLED = False
 IS_FROZEN = bool(getattr(sys, "frozen", False))
 APP_DIR = Path(sys.executable).resolve().parent if IS_FROZEN else Path(__file__).resolve().parent
+# A dev version is anything run from source or from a folder named "...-Dev". It never goes to the tray,
+# so closing the window really quits and a stray test copy cannot stay running in the background.
+IS_DEV_BUILD = (not IS_FROZEN) or any(part.lower().endswith("-dev") for part in APP_DIR.parts)
 RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR)).resolve()
 
 

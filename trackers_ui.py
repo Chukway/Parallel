@@ -844,7 +844,8 @@ def build_settings_tab(layout: QVBoxLayout, hub: TrackerHub):
     tray.setChecked(bool(state.option("tray")))
     tray.toggled.connect(lambda checked: state.set_option("tray", checked))
     layout.addWidget(tray)
-    note("Scans and hotkeys keep working while Parallel is in the tray. Right-click the tray icon to open or quit it.")
+    note("Scans and hotkeys keep working while Parallel is in the tray. Right-click the tray icon to open or quit it. "
+         "Development copies never use the tray.")
     layout.addStretch(1)
 
 
@@ -856,7 +857,7 @@ class TrayController(QObject):
     def __init__(self, window, hub: TrackerHub, icon, quit_app: Callable[[], None]):
         super().__init__(window)
         self.window, self.hub = window, hub
-        self.available = QSystemTrayIcon.isSystemTrayAvailable()
+        self.available = QSystemTrayIcon.isSystemTrayAvailable() and not config.IS_DEV_BUILD
         self._hinted = False
         self.tray = QSystemTrayIcon(icon, window)
         self.tray.setToolTip(config.APP_NAME)
