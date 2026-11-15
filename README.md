@@ -156,7 +156,7 @@ The **Trackers** group in the sidebar shows what is going on in the game without
 - **Daily**: Sortie and a daily tick list.
 - **Weekly**: Duviri Circuit rotation, Archon Hunt, the Steel Path reward and a weekly tick list. Tick boxes clear themselves at the reset (daily 00:00 UTC, weekly Monday 00:00 UTC).
 - **Archimedea**: this week's Elite Temporal and Elite Deep Archimedea with their missions, debuffs and risks.
-- **Arbitration**: the full hourly schedule with mission, tier and faction filters, local or UTC time.
+- **Arbitration**: the full hourly schedule with mission, tier and faction filters, local or UTC time. Schedule data is from [browse.wf](https://browse.wf/arbys) and the tier ratings are by the Arbitration Goons community; thank you to both.
 - **News**: game news and Nightwave.
 
 Data refreshes every two minutes and timers count down every second. If you are offline the pages keep

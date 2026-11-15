@@ -758,8 +758,8 @@ class ArbitrationPage(QWidget):
                 self.table.setItem(r, column, item)
         extra = f" Showing the first {self.MAX_ROWS}; narrow the filters to see the rest." if len(entries) > self.MAX_ROWS else ""
         self.note.setText(
-            f"{len(entries)} Arbitrations. Tier ratings come from the Arbitration Goons community "
-            f"and can be edited in tracker_arbitration_tiers.json.{extra}"
+            f"{len(entries)} Arbitrations. Schedule data from browse.wf; tier ratings by the Arbitration Goons "
+            f"community (editable in tracker_arbitration_tiers.json).{extra}"
         )
 
 
