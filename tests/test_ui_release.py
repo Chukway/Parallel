@@ -415,6 +415,41 @@ class UIReleaseTests(unittest.TestCase):
         self.assertEqual([i.url_name for i in dialog.selected_items], ["list_prime"])
         self.assertEqual(list(dialog.removed_queued_rewards), ["skip_prime"])
 
+    def test_delete_button_removes_ticked_rewards_after_confirming(self):
+        from pillar3_api import PriceInfo
+        store = self.store()
+        store.queue_reward("del_prime", "Del Prime")
+        store.queue_reward("keep_prime", "Keep Prime")
+        items = [
+            SimpleNamespace(url_name=url, display_name=name, quantity=1, _queued_reward_quantity=1,
+                            _reward_existing_quantity=0, grid_position=(0, 0))
+            for url, name in (("del_prime", "Del Prime"), ("keep_prime", "Keep Prime"))
+        ]
+        prices = {i.url_name: PriceInfo(i.url_name, 10, 10.0, 3, 10, []) for i in items}
+        dialog = self.ui.InventoryReviewDialog(items, prices, queued_reward_rows=list(store.get_reward_queue().values()))
+        self.addCleanup(dialog.deleteLater)
+        for row in range(dialog.table.rowCount()):
+            dialog.table.cellWidget(row, 0).setChecked(dialog.table.verticalHeaderItem(row).text() == "del_prime")
+        yes, no = self.ui.QMessageBox.StandardButton.Yes, self.ui.QMessageBox.StandardButton.No
+        with patch.object(self.ui.QMessageBox, "question", return_value=no):
+            dialog._delete_selected_queued_rewards()
+        self.assertEqual(dialog.removed_queued_rewards, {})          # declined: nothing happens
+        self.assertEqual(dialog.table.rowCount(), 2)
+        with patch.object(self.ui.QMessageBox, "question", return_value=yes):
+            dialog._delete_selected_queued_rewards()
+        self.assertEqual(list(dialog.removed_queued_rewards), ["del_prime"])
+        self.assertTrue(dialog.removed_queued_rewards["del_prime"]["delete_from_item_list"])
+        self.assertEqual(dialog.table.rowCount(), 1)
+        dialog._confirm()
+        self.assertEqual(dialog.selected_items, [])                  # the other one was not listed
+
+    def test_take_item_quantity_never_goes_below_zero(self):
+        store = self.store()
+        store.queue_reward("del_prime", "Del Prime")
+        self.assertTrue(store.take_item_quantity("del_prime", 5))
+        self.assertEqual(store.items["del_prime"].quantity, 0)
+        self.assertFalse(store.take_item_quantity("missing_prime", 1))
+
     def test_reward_review_has_list_and_dont_list_only(self):
         from pillar3_api import PriceInfo
         store = self.store()

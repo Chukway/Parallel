@@ -2193,6 +2193,10 @@ class App:
                 # used for that successful WFM write. Explicit local removals
                 # consume the same snapshot quantity, without double-counting.
                 handled_rewards.update(removed_rewards)
+                for url_name, row in removed_rewards.items():
+                    # Rewards deleted in the review leave the Item List as well.
+                    if row.get("delete_from_item_list"):
+                        self.account_store.take_item_quantity(url_name, int(row.get("quantity", 0)))
                 if handled_rewards:
                     with self._reward_queue_lock:
                         self._queued_reward_picks = self.account_store.remove_queued_rewards(handled_rewards)

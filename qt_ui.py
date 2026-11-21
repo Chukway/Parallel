@@ -1783,6 +1783,13 @@ class InventoryReviewDialog(QDialog):
                 "without posting it, then press Apply selected."
             ))
             queue_actions.addStretch()
+            delete_rewards = _button("Delete", C_RED, "white")
+            delete_rewards.setToolTip(
+                "Deletes the rewards ticked in the List column from this review and from your Item List, "
+                "after you confirm. Nothing is listed."
+            )
+            delete_rewards.clicked.connect(self._delete_selected_queued_rewards)
+            queue_actions.addWidget(delete_rewards)
             remove_rewards = _button("Keep in Item List", C_BLUE, "white")
             remove_rewards.setToolTip("Ticks Don't list on the rewards you have ticked in the List column.")
             remove_rewards.clicked.connect(self._tick_dont_list_for_selected)
@@ -1842,22 +1849,32 @@ class InventoryReviewDialog(QDialog):
         footer.addWidget(cancel)
         layout.addLayout(footer)
 
-    def _remove_selected_queued_rewards(self):
+    def _delete_selected_queued_rewards(self):
+        """Delete the rewards ticked in the List column: out of this queue and the Item List.
+
+        Nothing is listed and warframe.market is not touched. The Item List removal is
+        carried out by the caller (see ``delete_from_item_list``) once the window closes.
+        """
         selected = {}
         for row in range(self.table.rowCount()):
-            if not self.table.cellWidget(row, 9).isChecked():
+            box = self.table.cellWidget(row, 0)
+            if box is None or not box.isChecked():
                 continue
             url_name = self.table.verticalHeaderItem(row).text()
             reward = next((item for item in self.queued_reward_rows if item.get("url_name") == url_name), None)
             if reward is not None:
-                selected[url_name] = reward
+                selected[url_name] = {**reward, "delete_from_item_list": True}
         if not selected:
+            QMessageBox.information(
+                self, "Nothing selected", "Tick the rewards you want to delete in the List column first."
+            )
             return
+        count = sum(int(row.get("quantity", 0)) for row in selected.values())
         answer = QMessageBox.question(
             self,
-            "Keep in Item List without listing?",
-            f"Clear {sum(int(row.get('quantity', 0)) for row in selected.values())} reward(s) from this queue? "
-            "They stay in your Item List and nothing is posted to or changed on Warframe.market.",
+            "Delete selected rewards?",
+            f"Delete {count} reward(s) across {len(selected)} item(s)? They are removed from this "
+            "review and from your Item List. Nothing is listed and Warframe.market is not changed.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )

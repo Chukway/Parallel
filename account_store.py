@@ -317,6 +317,18 @@ class AccountStore:
         return {key: dict(row) for key, row in self.reward_queue.items()}
 
     @_synchronized
+    def take_item_quantity(self, url_name: str, count: int) -> bool:
+        """Take ``count`` copies out of the Item List (never below 0). Returns whether it changed."""
+        item = self.items.get(url_name)
+        count = max(0, int(count))
+        if item is None or count <= 0:
+            return False
+        item.quantity = max(0, int(item.quantity) - count)
+        item.last_seen = time.time()
+        self.save()
+        return True
+
+    @_synchronized
     def remove_queued_rewards(self, reviewed: dict[str, dict[str, object]]) -> dict[str, dict[str, object]]:
         """Remove only the reviewed quantities, retaining rewards queued meanwhile."""
         for url_name, row in reviewed.items():
