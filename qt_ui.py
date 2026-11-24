@@ -95,6 +95,10 @@ from alert_sound import generated_styles, play_alert
 from inventory_scanner import InventoryItem
 from support_reminders import SUPPORT_URL, SupportReminders
 from settings_validation import MAX_SETTINGS_BYTES, sanitize_settings
+from progress_overlay import OVERLAY_SPECS, StepOverlay, clean_corner
+
+# Set by the running UI so a saved Settings window can restyle the progress pills.
+_overlay_refresh_hook = None
 from name_aliases import normalize_alias_text, sanitize_name_aliases
 from pillar2_ocr import MatchedItem, is_ocr_backend_available, validate_ocr_backend
 from pillar3_api import ExistingListing, PriceInfo
@@ -535,6 +539,10 @@ def _save_ui_settings():
         "min_listing_price": int(getattr(config, "MIN_LISTING_PRICE", 2)),
         "visual_notifications_enabled": bool(getattr(config, "VISUAL_NOTIFICATIONS_ENABLED", True)),
         "notification_corner": str(getattr(config, "NOTIFICATION_CORNER", "top_left")),
+        "step_overlay_enabled": bool(getattr(config, "STEP_OVERLAY_ENABLED", True)),
+        "step_overlay_corner": str(getattr(config, "STEP_OVERLAY_CORNER", "top_right")),
+        "step_overlay_labels": bool(getattr(config, "STEP_OVERLAY_LABELS", True)),
+        "step_overlay_hide_seconds": int(getattr(config, "STEP_OVERLAY_HIDE_SECONDS", 0)),
         "reward_owned_style": str(getattr(config, "REWARD_OWNED_STYLE", "cards")),
         "reward_rank_by": str(getattr(config, "REWARD_RANK_BY", "plat")),
         "sidro_notification_mascot": bool(getattr(config, "SIDRO_NOTIFICATION_MASCOT", False)),
@@ -2851,6 +2859,26 @@ class SettingsDialog(QDialog):
             lambda _i: self._pending.__setitem__("reward_rank_by", str(self.reward_rank_combo.currentData() or "plat"))
         )
         notify_grid.addWidget(self.reward_rank_combo, 3, 1, 1, 2)
+        self.overlay_check = _StyledCheckBox("Progress overlay (dots over the game)")
+        self.overlay_check.setChecked(bool(self._pending.get("step_overlay_enabled", True)))
+        self.overlay_check.setToolTip(
+            "A small pill that lights one dot per step while Void Fissure Scanning is on."
+        )
+        notify_grid.addWidget(self.overlay_check, 4, 0)
+        notify_grid.addWidget(QLabel("Overlay corner:"), 4, 1)
+        self.overlay_corner_combo = QComboBox()
+        self.overlay_corner_combo.addItems(["top_left", "top_right", "bottom_left", "bottom_right"])
+        self.overlay_corner_combo.setCurrentText(str(self._pending.get("step_overlay_corner", "top_right")))
+        notify_grid.addWidget(self.overlay_corner_combo, 4, 2)
+        self.overlay_labels_check = _StyledCheckBox("Words beside the dots")
+        self.overlay_labels_check.setChecked(bool(self._pending.get("step_overlay_labels", True)))
+        notify_grid.addWidget(self.overlay_labels_check, 5, 0)
+        notify_grid.addWidget(QLabel("Hide after (seconds):"), 5, 1)
+        self.overlay_hide_spin = QSpinBox()
+        self.overlay_hide_spin.setRange(0, 120)
+        self.overlay_hide_spin.setSpecialValueText("Stay visible")
+        self.overlay_hide_spin.setValue(int(self._pending.get("step_overlay_hide_seconds", 0)))
+        notify_grid.addWidget(self.overlay_hide_spin, 5, 2)
         notify_layout.addLayout(notify_grid)
         notify_layout.addStretch()
 
@@ -3050,6 +3078,10 @@ class SettingsDialog(QDialog):
             "min_listing_price": int(getattr(config, "MIN_LISTING_PRICE", 2)),
             "visual_notifications_enabled": bool(getattr(config, "VISUAL_NOTIFICATIONS_ENABLED", True)),
             "notification_corner": str(getattr(config, "NOTIFICATION_CORNER", "top_left")),
+            "step_overlay_enabled": bool(getattr(config, "STEP_OVERLAY_ENABLED", True)),
+            "step_overlay_corner": str(getattr(config, "STEP_OVERLAY_CORNER", "top_right")),
+            "step_overlay_labels": bool(getattr(config, "STEP_OVERLAY_LABELS", True)),
+            "step_overlay_hide_seconds": int(getattr(config, "STEP_OVERLAY_HIDE_SECONDS", 0)),
             "reward_owned_style": str(getattr(config, "REWARD_OWNED_STYLE", "cards")),
         "reward_rank_by": str(getattr(config, "REWARD_RANK_BY", "plat")),
             "sidro_notification_mascot": bool(getattr(config, "SIDRO_NOTIFICATION_MASCOT", False)),
@@ -3102,6 +3134,10 @@ class SettingsDialog(QDialog):
         self._pending["alert_sound_volume"] = self.sound_volume.value() / 100
         self._pending["visual_notifications_enabled"] = self.visual_check.isChecked()
         self._pending["notification_corner"] = self.corner_combo.currentText()
+        self._pending["step_overlay_enabled"] = self.overlay_check.isChecked()
+        self._pending["step_overlay_corner"] = self.overlay_corner_combo.currentText()
+        self._pending["step_overlay_labels"] = self.overlay_labels_check.isChecked()
+        self._pending["step_overlay_hide_seconds"] = self.overlay_hide_spin.value()
         self._pending["reward_owned_style"] = str(self.reward_owned_combo.currentData() or "cards")
         self._pending["reward_rank_by"] = str(self.reward_rank_combo.currentData() or "plat")
         self._pending["sidro_notification_mascot"] = self.mascot_check.isChecked()
@@ -3153,6 +3189,10 @@ class SettingsDialog(QDialog):
         config.ALERT_SOUND_CUSTOM_PATH = str(self._pending["alert_sound_custom_path"])
         config.VISUAL_NOTIFICATIONS_ENABLED = bool(self._pending["visual_notifications_enabled"])
         config.NOTIFICATION_CORNER = str(self._pending["notification_corner"])
+        config.STEP_OVERLAY_ENABLED = bool(self._pending["step_overlay_enabled"])
+        config.STEP_OVERLAY_CORNER = clean_corner(str(self._pending["step_overlay_corner"]))
+        config.STEP_OVERLAY_LABELS = bool(self._pending["step_overlay_labels"])
+        config.STEP_OVERLAY_HIDE_SECONDS = max(0, int(self._pending["step_overlay_hide_seconds"]))
         style = str(self._pending.get("reward_owned_style"))
         config.REWARD_OWNED_STYLE = style if style in ("cards", "panel", "inline", "list") else "cards"
         config.REWARD_RANK_BY = "ducats" if str(self._pending.get("reward_rank_by")) == "ducats" else "plat"
@@ -3206,6 +3246,8 @@ class SettingsDialog(QDialog):
         _save_ui_settings()
         _load_color_settings()
         _apply_app_style(QApplication.instance())
+        if _overlay_refresh_hook is not None:
+            _overlay_refresh_hook()
         if hotkeys_changed and self.on_hotkeys_changed is not None:
             self.on_hotkeys_changed()
         if ocr_changed and self.on_ocr_changed is not None:
@@ -3439,6 +3481,10 @@ class SettingsDialog(QDialog):
         self.sound_volume.setValue(int(float(self._pending.get("alert_sound_volume", 0.45)) * 100))
         self.visual_check.setChecked(bool(self._pending.get("visual_notifications_enabled", True)))
         self.corner_combo.setCurrentText(str(self._pending.get("notification_corner", "top_left")))
+        self.overlay_check.setChecked(bool(self._pending.get("step_overlay_enabled", True)))
+        self.overlay_corner_combo.setCurrentText(str(self._pending.get("step_overlay_corner", "top_right")))
+        self.overlay_labels_check.setChecked(bool(self._pending.get("step_overlay_labels", True)))
+        self.overlay_hide_spin.setValue(int(self._pending.get("step_overlay_hide_seconds", 0)))
         self._set_combo_data(self.reward_owned_combo, str(self._pending.get("reward_owned_style", "cards")))
         self._set_combo_data(self.reward_rank_combo, str(self._pending.get("reward_rank_by", "plat")))
         self.mascot_check.setChecked(bool(self._pending.get("sidro_notification_mascot", False)))
@@ -6804,6 +6850,8 @@ class UIController:
         self.reward_queue_count = 0
         self.reward_tags: list[RewardPriceTag] = []
         self.toasts: list[Toast] = []
+        global _overlay_refresh_hook
+        _overlay_refresh_hook = self.overlay_refresh_options
         self.saved_ducat_dialogs: list[SavedDucatDialog] = []
         self.support_reminders: SupportReminders | None = None
         self.support_reminder_timer: QTimer | None = None
@@ -7015,6 +7063,61 @@ class UIController:
     def alert(self, message: str, status: str = "info", duration_ms: int = 5000, sound: str = "info"):
         self.toast(message, status, duration_ms)
         play_alert(sound)
+
+    # ── progress overlay (dots over the game) ─────────────
+    def _step_overlay(self, kind: str) -> StepOverlay | None:
+        spec = OVERLAY_SPECS.get(kind)
+        if spec is None:
+            return None
+        overlays = self.__dict__.setdefault("_step_overlays", {})
+        overlay = overlays.get(kind)
+        if overlay is None:
+            overlay = StepOverlay(
+                spec[0], spec[1],
+                corner=getattr(config, "STEP_OVERLAY_CORNER", "top_right"),
+                show_labels=getattr(config, "STEP_OVERLAY_LABELS", True),
+                hide_after=getattr(config, "STEP_OVERLAY_HIDE_SECONDS", 0),
+            )
+            overlays[kind] = overlay
+        return overlay
+
+    def overlay_active(self, kind: str, active: bool):
+        """Show or hide a task's pill: it is only up while its feature is switched on."""
+        def _apply():
+            self.__dict__.setdefault("_step_overlay_wanted", {})[kind] = bool(active)
+            overlay = self._step_overlay(kind)
+            if overlay is not None:
+                overlay.set_active(bool(active) and bool(getattr(config, "STEP_OVERLAY_ENABLED", True)))
+        self.invoke(_apply)
+
+    def overlay_step(self, kind: str, index: int, state: str = "done", note: str = ""):
+        def _apply():
+            overlay = self._step_overlay(kind)
+            if overlay is not None:
+                overlay.set_state(index, state, note)
+        self.invoke(_apply)
+
+    def overlay_reset(self, kind: str):
+        def _apply():
+            overlay = self._step_overlay(kind)
+            if overlay is not None:
+                overlay.reset()
+        self.invoke(_apply)
+
+    def overlay_refresh_options(self):
+        """Apply changed Settings (corner, words, hide delay, on/off) to pills already built."""
+        def _apply():
+            wanted = self.__dict__.get("_step_overlay_wanted", {})
+            for kind, overlay in self.__dict__.get("_step_overlays", {}).items():
+                overlay.apply_options(
+                    getattr(config, "STEP_OVERLAY_CORNER", "top_right"),
+                    getattr(config, "STEP_OVERLAY_LABELS", True),
+                    getattr(config, "STEP_OVERLAY_HIDE_SECONDS", 0),
+                )
+                overlay.set_active(
+                    bool(wanted.get(kind)) and bool(getattr(config, "STEP_OVERLAY_ENABLED", True))
+                )
+        self.invoke(_apply)
 
     def busy_start(self, message: str, max_ms: int = 120000):
         """Show a notification with a moving bar until busy_end(); returns a handle or None."""

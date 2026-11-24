@@ -113,6 +113,7 @@
 !/pillar2_ocr.py
 !/pillar3_api.py
 !/pillar4_ui.py
+!/progress_overlay.py
 !/qt_ui.py
 !/release_materials/DEPENDENCY_BASELINE.md
 !/release_materials/README.md
@@ -252,6 +253,7 @@
 !/tests/test_network_privacy.py
 !/tests/test_ocr_pack_validation.py
 !/tests/test_ocr_subprocesses.py
+!/tests/test_progress_overlay.py
 !/tests/test_public_source.py
 !/tests/test_ranked_listings.py
 !/tests/test_release_contract.py

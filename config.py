@@ -17,7 +17,7 @@ from settings_validation import MAX_SETTINGS_BYTES, sanitize_settings
 APP_NAME = "Parallel"
 APP_SLUG = "Parallel"
 LEGACY_APP_SLUG = "Sidro"   # data folder used before the rename; copied once, never deleted
-APP_VERSION = "1.2.3"
+APP_VERSION = "1.2.4"
 # Parallel is a fork with no release feed of its own; never offer the original
 # project's releases as updates. Set to True only after pointing update_core at your own repo.
 UPDATE_SOURCE_ENABLED = False
@@ -561,6 +561,10 @@ ALERT_SOUND_VOLUME = 0.45        # 0.0 - 1.0 for generated alert WAVs
 ALERT_SOUND_CUSTOM_PATH = ""
 VISUAL_NOTIFICATIONS_ENABLED = True
 NOTIFICATION_CORNER = "top_left" # top_left | top_right | bottom_left | bottom_right
+STEP_OVERLAY_ENABLED = True      # small dot pill that shows scan progress over the game
+STEP_OVERLAY_CORNER = "top_right"
+STEP_OVERLAY_LABELS = True       # a word beside each dot
+STEP_OVERLAY_HIDE_SECONDS = 0    # 0 = stay up while the scan is on; N = hide N seconds after the last change
 REWARD_MARKET_HINTS = True       # show a vaulted "V" and a price-direction arrow on the reward overlay
 REWARD_OWNED_STYLE = "cards"     # cards: plat/ducats above each card, number + set below | panel: ranked list in the top-left corner | inline: "Own 2/4" beside the price | list: set parts under each reward
 REWARD_RANK_BY = "plat"          # panel order: plat | ducats
@@ -591,6 +595,10 @@ if APP_SETTINGS_PATH.exists():
             _settings.get("visual_notifications_enabled", VISUAL_NOTIFICATIONS_ENABLED)
         )
         NOTIFICATION_CORNER = str(_settings.get("notification_corner", NOTIFICATION_CORNER))
+        STEP_OVERLAY_ENABLED = bool(_settings.get("step_overlay_enabled", STEP_OVERLAY_ENABLED))
+        STEP_OVERLAY_CORNER = str(_settings.get("step_overlay_corner", STEP_OVERLAY_CORNER))
+        STEP_OVERLAY_LABELS = bool(_settings.get("step_overlay_labels", STEP_OVERLAY_LABELS))
+        STEP_OVERLAY_HIDE_SECONDS = int(_settings.get("step_overlay_hide_seconds", STEP_OVERLAY_HIDE_SECONDS))
         REWARD_OWNED_STYLE = str(_settings.get("reward_owned_style", REWARD_OWNED_STYLE))
         REWARD_RANK_BY = str(_settings.get("reward_rank_by", REWARD_RANK_BY))
         SIDRO_NOTIFICATION_MASCOT = bool(

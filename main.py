@@ -1586,6 +1586,10 @@ class App:
         if selected_slot is None:
             if self._pending_reward_pick is not None:
                 print("[Reward] Current selection is unconfirmed; cleared the earlier pending reward.")
+                try:
+                    self.ui.overlay_step("fissure", 1, "pending")
+                except Exception:
+                    pass
             self._pending_reward_pick = None
             self._pending_reward_slot = None
             return
@@ -1604,6 +1608,11 @@ class App:
                     "[Reward] Pending selected reward updated: "
                     f"{selected['display_name']}"
                 )
+                try:
+                    self.ui.overlay_step("fissure", 1, "pending")
+                    self.ui.overlay_step("fissure", 1, "done", f"Picked: {selected['display_name']}")
+                except Exception:
+                    pass
                 self._prepare_reward_review_async(selected)
             self._pending_reward_slot = selected_slot
             return
@@ -1814,8 +1823,17 @@ class App:
             self._reward_monitor_thread = threading.Thread(target=self._reward_monitor_loop, daemon=True)
             self._reward_monitor_thread.start()
             self.ui.toast("Reward price monitor enabled.", "info", 3000)
+            try:
+                self.ui.overlay_reset("fissure")
+                self.ui.overlay_active("fissure", True)
+            except Exception:
+                pass
             return
 
+        try:
+            self.ui.overlay_active("fissure", False)
+        except Exception:
+            pass
         self._reward_monitor_stop.set()
         self.ui.toast("Reward price monitor disabled.", "info", 3000)
 
@@ -1870,8 +1888,20 @@ class App:
                             self._pending_reward_slot = None
                             self._reset_reward_session_tracking()
                             if pending is not None:
+                                try:
+                                    self.ui.overlay_step(
+                                        "fissure", 2, "done", f"Confirmed: {pending.get('display_name', '')}",
+                                    )
+                                except Exception:
+                                    pass
                                 self._queue_reward_pick(pending)
                             elif selection_unconfirmed:
+                                try:
+                                    self.ui.overlay_step(
+                                        "fissure", 1, "failed", "Pick not confirmed; nothing queued",
+                                    )
+                                except Exception:
+                                    pass
                                 print("[Reward] Final selection was unconfirmed; no reward queued.")
                                 self.ui.toast(
                                     "Reward selection could not be confirmed; no reward was queued.",
@@ -1884,6 +1914,10 @@ class App:
                 if self._reward_screen_started_at is None:
                     self._reward_screen_started_at = time.monotonic()
                     self._reward_history_id = str(int(time.time() * 1000))
+                    try:
+                        self.ui.overlay_reset("fissure")
+                    except Exception:
+                        pass
                 if frame_buffer is None:
                     new_buffer = RewardFrameBuffer(
                         scanner.grabber.fork, scanner.reward_layout_present, frame,
@@ -1908,6 +1942,10 @@ class App:
                     if self._ocr_reset_pending.is_set():
                         break
                     if result.items:
+                        try:
+                            self.ui.overlay_step("fissure", 0, "done", f"{len(result.items)} rewards read")
+                        except Exception:
+                            pass
                         overlay_rows, best_rows, signature, changed = self._merge_reward_scan_result(result)
                         price_signature = tuple(
                             (
@@ -2109,6 +2147,10 @@ class App:
         self.ui.set_reward_queue_count(total)
         self.ui.refresh_dashboard_profile()
         print(f"[Reward] Queued picked reward: {display_name} (queue total {total})")
+        try:
+            self.ui.overlay_step("fissure", 3, "done", f"Added to review: {display_name}")
+        except Exception:
+            pass
 
     def review_queued_rewards(self):
         """Open one batch review for rewards collected during a fissure run."""

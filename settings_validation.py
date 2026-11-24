@@ -20,7 +20,7 @@ def sanitize_settings(data: object) -> dict:
     booleans = (
         "alert_sound_enabled", "visual_notifications_enabled", "sidro_notification_mascot",
         "sidro_welcome_audio_enabled", "ocr_fallback_enabled", "ducat_filter_enabled",
-        "reward_price_check_enabled",
+        "reward_price_check_enabled", "step_overlay_enabled", "step_overlay_labels",
     )
     for key in booleans:
         if type(data.get(key)) is bool:
@@ -28,7 +28,7 @@ def sanitize_settings(data: object) -> dict:
     for key, low, high in (
         ("min_listing_price", 1, 99999), ("ui_font_size", 9, 24),
         ("ocr_fallback_min_score", 0, 100), ("ocr_settings_version", 1, 1000),
-        ("alert_sound_volume", 0, 1),
+        ("alert_sound_volume", 0, 1), ("step_overlay_hide_seconds", 0, 120),
     ):
         value = data.get(key)
         if type(value) is int or (type(value) is float and math.isfinite(value)):
@@ -37,6 +37,7 @@ def sanitize_settings(data: object) -> dict:
     for key, choices in (
         ("update_check_frequency", ("daily", "weekly", "monthly", "never")),
         ("notification_corner", ("top_left", "top_right", "bottom_left", "bottom_right")),
+        ("step_overlay_corner", ("top_left", "top_right", "bottom_left", "bottom_right")),
         ("sidro_visual_character", ("robot", "maid")),
         ("sidro_welcome_visual_frequency", ("once_a_day", "every_launch", "never")),
         ("ui_table_text_alignment", ("left", "center", "right")),
