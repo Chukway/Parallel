@@ -63,6 +63,10 @@ class RewardScanner:
         self._reward_title_cache: tuple[int, float, bool] | None = None
         self._reward_heading_template = None
         self._reward_card_layout = None
+        # Cards that could not be named on this screen, by slot: what was read and
+        # which names it could have been. Used to build the failed-pick review.
+        self.unresolved_by_slot: dict[int, dict] = {}
+        self._ambiguous_note: dict | None = None
         print("[Reward] Reward scanner ready.")
 
     def scan(
@@ -164,8 +168,10 @@ class RewardScanner:
 
         primary_ocr_seconds = time.perf_counter() - primary_ocr_started
         match_started = time.perf_counter()
+        primary_notes: dict[int, dict | None] = {}
         for idx, ocr_results in zip(dirty_indices, primary_results):
             slot_idx, rect, _crop = slot_cells[idx]
+            self._ambiguous_note = None
             matched = self._match_results(
                 ocr_results,
                 minimum_score=(
@@ -174,7 +180,11 @@ class RewardScanner:
                     else None
                 ),
             )
-            if matched is not None:
+            primary_notes[idx] = self._ambiguous_note
+            if matched is None and not use_fallback:
+                self._note_unresolved(slot_idx, ocr_results)
+            elif matched is not None:
+                self.unresolved_by_slot.pop(slot_idx, None)
                 results_by_slot[idx] = RewardItem(
                     display_name=matched.display_name,
                     url_name=matched.url_name,
@@ -188,8 +198,20 @@ class RewardScanner:
         match_seconds = time.perf_counter() - match_started
 
         fallback_seconds = 0.0
+        # A card that reads as Forma (or other ignored text) is final: a second,
+        # slower OCR pass cannot turn it into a market item.
+        primary_by_idx = dict(zip(dirty_indices, primary_results))
+        ignored_indices = {
+            idx for idx in dirty_indices
+            if results_by_slot[idx] is None and self._is_ignored_card(primary_by_idx.get(idx))
+        }
+        for idx in ignored_indices:
+            self.unresolved_by_slot.pop(slot_cells[idx][0], None)
         if use_fallback:
-            failed_indices = [idx for idx in dirty_indices if results_by_slot[idx] is None]
+            failed_indices = [
+                idx for idx in dirty_indices
+                if results_by_slot[idx] is None and idx not in ignored_indices
+            ]
             if failed_indices:
                 fallback_started = time.perf_counter()
                 fallback_images = [
@@ -206,9 +228,13 @@ class RewardScanner:
 
                 for idx, ocr_results in zip(failed_indices, fallback_results):
                     slot_idx, rect, _crop = slot_cells[idx]
+                    self._ambiguous_note = None
                     matched = self._match_results(ocr_results)
                     if matched is None:
+                        self._ambiguous_note = self._ambiguous_note or primary_notes.get(idx)
+                        self._note_unresolved(slot_idx, list(primary_by_idx.get(idx) or []) + list(ocr_results or []))
                         continue
+                    self.unresolved_by_slot.pop(slot_idx, None)
                     results_by_slot[idx] = RewardItem(
                         display_name=matched.display_name,
                         url_name=matched.url_name,
@@ -226,7 +252,8 @@ class RewardScanner:
             prepared, regions = prepared_by_idx[idx]
             fingerprint = zlib.crc32(np.ascontiguousarray(prepared).view(np.uint8))
             fingerprint = zlib.crc32(repr(regions).encode("ascii"), fingerprint)
-            retry_after = time.monotonic() + 3.0 if results_by_slot[idx] is None else float("inf")
+            settled = results_by_slot[idx] is not None or idx in ignored_indices
+            retry_after = float("inf") if settled else time.monotonic() + 3.0
             self._slot_ocr_cache[slot_idx] = (
                 fingerprint,
                 retry_after,
@@ -345,6 +372,37 @@ class RewardScanner:
     def reset_session(self):
         self._reward_heading_template = None
         self._reward_card_layout = None
+        self.unresolved_by_slot = {}
+
+    @staticmethod
+    def _results_text(results) -> str:
+        merged = " ".join(str(getattr(result, "raw_text", "") or "") for result in results or [])
+        return normalize_ocr_text(merged)
+
+    def _is_ignored_card(self, results) -> bool:
+        """True when the card reads as something we skip on purpose, such as a Forma Blueprint."""
+        lowered = self._results_text(results).lower()
+        return bool(lowered) and any(
+            ignored and ignored.lower() in lowered
+            for ignored in getattr(config, "REWARD_IGNORE_TEXT_CONTAINS", ())
+        )
+
+    def _note_unresolved(self, slot_idx: int, results) -> None:
+        """Remember a card that stayed unnamed, with the names it was ambiguous between."""
+        if self._is_ignored_card(results):
+            self.unresolved_by_slot.pop(slot_idx, None)
+            return
+        note = self._ambiguous_note or {}
+        candidates = []
+        for name in note.get("names", []):
+            url_name = self.items_cache.url_name(name) or ""
+            if url_name:
+                candidates.append({"display_name": name, "url_name": url_name})
+        self.unresolved_by_slot[slot_idx] = {
+            "slot": slot_idx,
+            "text": self._results_text(results),
+            "candidates": candidates,
+        }
 
     def _card_rects(self, frame: np.ndarray) -> list[tuple]:
         layout = getattr(self, "_reward_card_layout", None)
@@ -563,6 +621,12 @@ class RewardScanner:
             if resolved is not None:
                 return resolved
             print(f"[Reward] Ambiguous reward component; retrying instead of guessing: '{normalized}'")
+            self._ambiguous_note = {
+                "names": [matched.display_name] + [
+                    name for name, score in getattr(matched, "alternatives", []) or []
+                    if score >= matched.match_score - 2
+                ],
+            }
             return None
         return matched
 

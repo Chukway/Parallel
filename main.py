@@ -1736,6 +1736,38 @@ class App:
             duration_ms=duration_ms,
         )
 
+    def _save_reward_failure(self, frame, unresolved: list[dict]) -> int:
+        """Number this reward screen as a failure and keep a screenshot for the review tab."""
+        try:
+            screen_id = getattr(self, "_reward_history_id", None)
+            if not screen_id:
+                return 0
+            if getattr(self, "_reward_history", None) is None:
+                self._reward_history = RewardHistory()
+            history = self._reward_history
+            image = ""
+            if frame is not None:
+                image = self._save_failure_image(history, screen_id, frame)
+            return history.mark_failed(screen_id, unread=unresolved, image=image, create=True)
+        except Exception as e:
+            print(f"[Reward] Failure not saved: {e}")
+            return 0
+
+    @staticmethod
+    def _save_failure_image(history, screen_id: str, frame) -> str:
+        """A 1600px-wide JPEG of the reward screen, named after the screen it belongs to."""
+        import cv2
+        height, width = frame.shape[:2]
+        if width > 1600:
+            frame = cv2.resize(frame, (1600, max(1, int(height * 1600 / width))), interpolation=cv2.INTER_AREA)
+        ok, encoded = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 82])
+        if not ok:
+            return ""
+        history.images_dir.mkdir(parents=True, exist_ok=True)
+        name = f"failure_{screen_id}.jpg"
+        (history.images_dir / name).write_bytes(encoded.tobytes())
+        return name
+
     def _record_reward_history(self, rows: list[dict]):
         try:
             screen_id = getattr(self, "_reward_history_id", None)
@@ -1923,10 +1955,15 @@ class App:
                             if self._last_reward_rows:
                                 self._confirm_final_reward_selection(scanner, self._last_reward_rows, final_frame)
                             pending = self._pending_reward_pick
+                            # Cards this screen showed but could not name; snapshot before the reset.
+                            try:
+                                unresolved = [dict(u) for u in scanner.unresolved_by_slot.values()]
+                            except Exception:
+                                unresolved = []
                             selection_unconfirmed = (
                                 pending is None
                                 and self._pending_reward_slot is None
-                                and bool(self._last_reward_rows)
+                                and (bool(self._last_reward_rows) or bool(unresolved))
                             )
                             self._pending_reward_pick = None
                             self._pending_reward_slot = None
@@ -1940,15 +1977,12 @@ class App:
                                     pass
                                 self._queue_reward_pick(pending)
                             elif selection_unconfirmed:
-                                failure_no = 0
                                 try:
-                                    history = getattr(self, "_reward_history", None)
-                                    if history is not None and getattr(self, "_reward_history_id", None):
-                                        failure_no = history.mark_failed(self._reward_history_id)
-                                except Exception as e:
-                                    print(f"[Reward] Failure not saved: {e}")
+                                    failure_no = self._save_reward_failure(final_frame, unresolved)
+                                except Exception:
+                                    failure_no = 0
                                 note = (
-                                    f"Failure {failure_no} saved: Trading Tools, Rewards tab"
+                                    f"Failure {failure_no} saved: Trading Tools, Failed rewards"
                                     if failure_no else "Pick not confirmed; nothing queued"
                                 )
                                 try:

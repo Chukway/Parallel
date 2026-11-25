@@ -253,6 +253,7 @@
 !/tests/test_release_materials.py
 !/tests/test_release_regressions.py
 !/tests/test_remove_items.py
+!/tests/test_reward_failures.py
 !/tests/test_reward_frame_buffer.py
 !/tests/test_reward_owned.py
 !/tests/test_reward_selection.py

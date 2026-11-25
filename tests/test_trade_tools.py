@@ -569,7 +569,7 @@ class PageSmokeTests(unittest.TestCase):
             page = TradingToolsPage(store, lambda: None, lambda m, s="info", ms=0: notes.append(m))
             page.watchlist.timer.stop()
             page.on_shown()
-            self.assertEqual(page.tabs.count(), 5)
+            self.assertEqual(page.tabs.count(), 6)
             self.assertTrue(qt_ui.RewardPriceTag("Name", 10, 99, 0, 0, 100, vaulted=True,
                                                  trend={"direction": "up", "arrow": "▲"}))
 

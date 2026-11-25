@@ -14,10 +14,10 @@ from datetime import datetime
 from typing import Callable
 
 from PySide6.QtCore import QDateTime, QStringListModel, Qt, QTimer, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QCompleter, QDateTimeEdit, QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
-    QMessageBox, QSpinBox, QTableWidget, QTabWidget, QVBoxLayout, QWidget,
+    QMessageBox, QScrollArea, QSpinBox, QTableWidget, QTabWidget, QVBoxLayout, QWidget,
 )
 
 import config
@@ -903,7 +903,7 @@ class RewardHistoryTab(QWidget):
             if only_failures and not number:
                 continue
             when = datetime.fromtimestamp(float(screen.get("at") or 0)).strftime("%b %d  %H:%M")
-            fixed = bool(screen.get("added"))
+            fixed = bool(screen.get("added") or screen.get("dismissed"))
             if number:
                 label = f"Failure {number}" + (" (fixed)" if fixed else "")
                 when = f"{label}  {when}"
@@ -958,6 +958,286 @@ class RewardHistoryTab(QWidget):
         self.reload()
         self._notify(f"Added {name} to your Item List.", "success", 4000)
 
+# ── failed reward screens, one page each ────────────────────────────
+
+class ScreenshotDialog(QDialog):
+    def __init__(self, parent, path, title: str):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        layout = QVBoxLayout(self)
+        label = QLabel()
+        pixmap = QPixmap(str(path))
+        if not pixmap.isNull():
+            label.setPixmap(pixmap.scaledToWidth(1100, Qt.SmoothTransformation) if pixmap.width() > 1100 else pixmap)
+        else:
+            label.setText("The screenshot could not be opened.")
+        scroll = QScrollArea()
+        scroll.setWidget(label)
+        layout.addWidget(scroll)
+        self.resize(1160, 700)
+
+
+class RewardFailuresTab(QWidget):
+    """One failed reward screen per page, so the reward you took can be picked afterwards.
+
+    Each card shows what Parallel saw for that reward: platinum, ducats, what to do
+    with it, how many you own and how far along its set is. Cards it could not read
+    list the names they might have been. Picking adds the reward the same way a
+    confirmed pick does (Item List and the Review rewards queue).
+    """
+
+    def __init__(self, store, notify):
+        super().__init__()
+        from reward_history import RewardHistory
+        self.store, self._notify = store, notify
+        self.history = RewardHistory()
+        self.page = 0
+        self._failures: list[dict] = []
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        self.pager = QFrame()
+        self.pager.setObjectName("Toolbar")
+        self.pager_row = QHBoxLayout(self.pager)
+        self.pager_row.setContentsMargins(12, 10, 12, 10)
+        self.pager_row.setSpacing(6)
+        layout.addWidget(self.pager)
+        self.empty = _muted("")
+        self.empty.setContentsMargins(12, 12, 12, 12)
+        layout.addWidget(self.empty)
+        self.body = QWidget()
+        self.cards_row = QHBoxLayout(self.body)
+        self.cards_row.setContentsMargins(12, 12, 12, 12)
+        self.cards_row.setSpacing(10)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(self.body)
+        self.scroll = scroll
+        layout.addWidget(scroll, 1)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Took something else? Type its name")
+        self.completer = QCompleter(self)
+        self.completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self.completer.setFilterMode(Qt.MatchContains)
+        self.search.setCompleter(self.completer)
+        self.pick_other = _button("I picked this", C_GREEN, "white")
+        self.pick_other.clicked.connect(self._pick_searched)
+        self.show_image = _button("Show screenshot", C_BG3, C_TEXT)
+        self.show_image.clicked.connect(self._show_screenshot)
+        self.dismiss = _button("Nothing to add", C_BG3, C_TEXT)
+        self.dismiss.setToolTip("Close this failure without adding anything (for example, you took Forma)")
+        self.dismiss.clicked.connect(self._dismiss)
+        layout.addWidget(_bar(self.search, self.pick_other, self.show_image, self.dismiss, stretch_first=True))
+        self.reload()
+
+    # ── data ──
+    def reload(self, keep_page: bool = False):
+        self.history.load()
+        self._failures = self.history.failures(unresolved_only=True)
+        if not keep_page:
+            self.page = max(0, len(self._failures) - 1)      # newest failure first
+        self.page = max(0, min(self.page, len(self._failures) - 1))
+        names = _market_item_names()
+        self._name_to_slug = names
+        self.completer.setModel(QStringListModel(sorted(names)))
+        self._rebuild_pager()
+        self._rebuild_cards()
+
+    def current(self) -> dict | None:
+        return self._failures[self.page] if 0 <= self.page < len(self._failures) else None
+
+    def go_to(self, index: int):
+        if 0 <= index < len(self._failures):
+            self.page = index
+            self._rebuild_pager()
+            self._rebuild_cards()
+
+    # ── pager ──
+    @staticmethod
+    def _clear(layout):
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+
+    def _rebuild_pager(self):
+        self._clear(self.pager_row)
+        screen = self.current()
+        self.empty.setVisible(screen is None)
+        self.scroll.setVisible(screen is not None)
+        for widget in (self.search, self.pick_other, self.show_image, self.dismiss):
+            widget.setEnabled(screen is not None)
+        if screen is None:
+            self.pager_row.addWidget(_muted("No failed picks waiting. When Parallel can't confirm which reward you took, it appears here."), 1)
+            self.empty.setText("Each failure is one page: pick the reward you took, or close it if there is nothing to add.")
+            return
+        when = datetime.fromtimestamp(float(screen.get("at") or 0)).strftime("%b %d  %H:%M")
+        previous = _button("‹", C_BG3, C_TEXT)
+        previous.clicked.connect(lambda: self.go_to(self.page - 1))
+        previous.setEnabled(self.page > 0)
+        following = _button("›", C_BG3, C_TEXT)
+        following.clicked.connect(lambda: self.go_to(self.page + 1))
+        following.setEnabled(self.page < len(self._failures) - 1)
+        self.pager_row.addWidget(previous)
+        for index, failure in enumerate(self._failures):
+            current = index == self.page
+            button = _button(str(failure["failure_no"]), C_BLUE if current else C_BG3, "white" if current else C_TEXT)
+            button.setToolTip("Failure " + str(failure["failure_no"]))
+            button.clicked.connect(lambda _checked=False, i=index: self.go_to(i))
+            self.pager_row.addWidget(button)
+        self.pager_row.addWidget(following)
+        self.pager_row.addSpacing(12)
+        self.pager_row.addWidget(
+            _muted(f"Failure {screen['failure_no']}  ·  {when}  ·  {self.page + 1} of {len(self._failures)}"), 1
+        )
+        self.show_image.setEnabled(self.history.image_path(screen) is not None)
+
+    # ── cards ──
+    def _owned(self, url: str) -> int:
+        item = self.store.items.get(url)
+        return int(item.quantity) if item is not None else 0
+
+    def _best_slot(self, rewards: list[dict]):
+        by_ducats = str(getattr(config, "REWARD_RANK_BY", "plat")) == "ducats"
+        key = "ducats" if by_ducats else "price"
+        valued = [r for r in rewards if r.get(key) is not None]
+        return max(valued, key=lambda r: r[key]).get("url_name") if valued else None
+
+    def _rebuild_cards(self):
+        self._clear(self.cards_row)
+        screen = self.current()
+        if screen is None:
+            return
+        rewards = [r for r in screen.get("rewards") or [] if r.get("url_name")]
+        best = self._best_slot(rewards) if len(rewards) > 1 else None
+        for reward in rewards:
+            self.cards_row.addWidget(self._reward_card(screen, reward, reward.get("url_name") == best), 1)
+        for unread in screen.get("unread") or []:
+            self.cards_row.addWidget(self._unread_card(screen, unread), 1)
+        if not rewards and not screen.get("unread"):
+            self.cards_row.addWidget(_muted("Nothing could be read on this screen. Open the screenshot, then type the item you took below."), 1)
+
+    def _card(self) -> tuple[QFrame, QVBoxLayout]:
+        frame = QFrame()
+        frame.setObjectName("Panel")
+        frame.setMinimumWidth(190)
+        column = QVBoxLayout(frame)
+        column.setContentsMargins(12, 10, 12, 12)
+        column.setSpacing(6)
+        return frame, column
+
+    def _reward_card(self, screen: dict, reward: dict, best: bool) -> QFrame:
+        frame, column = self._card()
+        slot = reward.get("slot")
+        if slot is not None:
+            column.addWidget(_muted(f"Card {int(slot) + 1}"))
+        name = QLabel(str(reward.get("display_name", "")))
+        name.setWordWrap(True)
+        name.setStyleSheet("font-weight: 600;")
+        column.addWidget(name)
+        price, ducats = reward.get("price"), reward.get("ducats")
+        plat = QLabel("no price" if price is None else f"{price}p")
+        plat.setStyleSheet(f"font-size: 22px; font-weight: 600; color: {C_GREEN if price is not None else C_MUTED};")
+        column.addWidget(plat)
+        if ducats is not None:
+            column.addWidget(_muted(f"{ducats} ducats"))
+        if reward.get("save_for_ducats"):
+            advice = "Save for ducats"
+            bulk = reward.get("ducat_bulk_value")
+            if bulk is not None:
+                advice += f" (worth about {bulk}p)"
+        else:
+            advice = "Sell for platinum" if price is not None else "No market price"
+        if best:
+            advice = "Best pick  ·  " + advice
+        recommendation = QLabel(advice)
+        recommendation.setWordWrap(True)
+        recommendation.setStyleSheet(f"color: {C_GREEN if best else C_TEXT};")
+        column.addWidget(recommendation)
+        tags = []
+        if reward.get("vaulted"):
+            tags.append("Vaulted")
+        trend = reward.get("trend") or {}
+        if trend.get("arrow"):
+            tags.append(f"Price {trend['arrow']}")
+        if tags:
+            column.addWidget(_muted("  ·  ".join(tags)))
+        own = f"Own x{self._owned(reward['url_name'])}"
+        if reward.get("set_total"):
+            own += f"  ·  {reward.get('set_name') or 'Set'}: {reward.get('set_have')}/{reward.get('set_total')} parts"
+        column.addWidget(_muted(own))
+        column.addStretch(1)
+        pick = _button("I picked this", C_GREEN, "white")
+        pick.clicked.connect(lambda _checked=False, u=reward["url_name"], n=reward.get("display_name", ""): self.pick(u, n))
+        column.addWidget(pick)
+        return frame
+
+    def _unread_card(self, screen: dict, unread: dict) -> QFrame:
+        frame, column = self._card()
+        slot = unread.get("slot")
+        column.addWidget(_muted(f"Card {int(slot) + 1}" if slot is not None else "A card"))
+        title = QLabel("Couldn't read this card")
+        title.setStyleSheet("font-weight: 600;")
+        column.addWidget(title)
+        if unread.get("text"):
+            column.addWidget(_muted(f"Read as: {unread['text']}"))
+        candidates = unread.get("candidates") or []
+        if candidates:
+            column.addWidget(_muted("It could be:"))
+        else:
+            column.addWidget(_muted("Open the screenshot, then type the name below."))
+        for candidate in candidates:
+            button = _button(candidate["display_name"], C_BG3, C_TEXT)
+            button.clicked.connect(
+                lambda _checked=False, u=candidate["url_name"], n=candidate["display_name"]: self.pick(u, n)
+            )
+            column.addWidget(button)
+        column.addStretch(1)
+        return frame
+
+    # ── actions ──
+    def pick(self, url_name: str, display_name: str):
+        screen = self.current()
+        if screen is None or not url_name:
+            return
+        queue = self.store.queue_reward(url_name, display_name)
+        self.history.mark_added(screen["id"], url_name)
+        window = self.window()
+        update_count = getattr(window, "set_reward_queue_count", None)
+        if callable(update_count):
+            update_count(sum(int(row.get("quantity", 0)) for row in queue.values()))
+        self.reload(keep_page=True)
+        self._notify(f"Added {display_name} to your Item List and the review queue.", "success", 4000)
+
+    def _pick_searched(self):
+        text = self.search.text().strip()
+        slug = next((s for n, s in self._name_to_slug.items() if n.casefold() == text.casefold()), None)
+        if not slug:
+            self._notify("Pick a name from the list as you type.", "warning", 3000)
+            return
+        name = next(n for n, s in self._name_to_slug.items() if s == slug)
+        self.search.clear()
+        self.pick(slug, name)
+
+    def _dismiss(self):
+        screen = self.current()
+        if screen is None:
+            return
+        self.history.mark_dismissed(screen["id"])
+        self.reload(keep_page=True)
+        self._notify(f"Failure {screen['failure_no']} closed.", "info", 3000)
+
+    def _show_screenshot(self):
+        screen = self.current()
+        path = self.history.image_path(screen) if screen else None
+        if path is None:
+            self._notify("No screenshot was saved for this failure.", "warning", 3000)
+            return
+        ScreenshotDialog(self, path, f"Failure {screen['failure_no']}").exec()
+
+
 # ── page ────────────────────────────────────────────────────────────
 
 class TradingToolsPage(QWidget):
@@ -976,6 +1256,8 @@ class TradingToolsPage(QWidget):
         self.tabs.addTab(self.sales, "Sales")
         self.tabs.addTab(self.baro, "Baro Ki'Teer")
         self.tabs.addTab(self.rewards, "Rewards")
+        self.failures = RewardFailuresTab(store, notify)
+        self.tabs.addTab(self.failures, "Failed rewards")
         self.tabs.currentChanged.connect(lambda _i: self.on_shown())
         layout.addWidget(self.tabs)
 
@@ -989,6 +1271,8 @@ class TradingToolsPage(QWidget):
             self.baro.on_shown()
         elif current is self.rewards:
             self.rewards.reload()
+        elif current is self.failures:
+            self.failures.reload()
 
 
 # ── Item List: set versus parts ─────────────────────────────────────
