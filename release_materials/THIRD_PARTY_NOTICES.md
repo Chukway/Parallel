@@ -1,6 +1,6 @@
 # Third-party notices
 
-Sidro includes software developed by third parties. Its libraries retain
+Parallel includes software developed by third parties. Its libraries retain
 their own copyright and license terms.
 
 ## Qt, PySide6 and Shiboken6
@@ -11,7 +11,7 @@ contributors. The reviewed Qt modules are Core, Gui, Network, Svg and Widgets.
 
 The Qt/PySide/Shiboken material supplied here documents the **LGPL version 3**
 distribution route. The included GPL version 3 text accompanies LGPLv3; its
-presence does not by itself choose the GPL as Sidro's application license.
+presence does not by itself choose the GPL as Parallel's application license.
 Some upstream components carry additional third-party terms.
 
 Read `licenses/qt/LGPL-3.0-only.txt`, `GPL-3.0-only.txt`, and

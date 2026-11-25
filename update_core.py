@@ -1,7 +1,8 @@
-"""Public GitHub release discovery and verified update downloads.
+"""Public GitHub release discovery and verified installer downloads.
 
-Selects stable Sidro releases, checks asset URLs and validates download
-checksums before the UI offers installation.
+Finds the newest stable Parallel release, checks that its installer asset comes
+from this repository with a published checksum, and validates the download
+before the UI offers to run it.
 """
 from datetime import date
 import hashlib
@@ -14,9 +15,12 @@ import requests
 
 REPOSITORY = "Chukway/Parallel"
 RELEASES_URL = f"https://github.com/{REPOSITORY}/releases"
-ASSET_NAME = "Sidro-windows.zip"
+ASSET_NAME = "Parallel-Setup.exe"
 MAX_DOWNLOAD = 1024 * 1024 * 1024
-HEADERS = {"Accept": "application/vnd.github+json", "User-Agent": "Sidro-Updater", "X-GitHub-Api-Version": "2026-03-10"}
+HEADERS = {"Accept": "application/vnd.github+json", "User-Agent": "Parallel-Updater", "X-GitHub-Api-Version": "2026-03-10"}
+# Quiet install over the existing copy: the old program is closed first and the
+# installer's own run step starts the new one.
+INSTALLER_ARGS = ("/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS")
 
 
 def automatic_check_due(frequency, last_checked, today=None):
@@ -51,13 +55,7 @@ def check_release(installed):
         return None
     tag = data["tag_name"]
     page = f"{RELEASES_URL}/tag/{tag}"
-    major, minor, patch = version(tag)
-    release_version = f"{major}.{minor}" if patch == 0 else f"{major}.{minor}.{patch}"
-    versioned_name = f"Sidro-windows-v{release_version}.zip"
-    assets = data.get("assets", [])
-    asset = next((item for item in assets if item.get("name") == versioned_name), None)
-    if asset is None:
-        asset = next((item for item in assets if item.get("name") == ASSET_NAME), None)
+    asset = next((item for item in data.get("assets", []) if item.get("name") == ASSET_NAME), None)
     result = {"version": tag, "page": page, "asset": None}
     if asset:
         url = asset.get("browser_download_url", "")
@@ -70,7 +68,12 @@ def check_release(installed):
     return result
 
 
-def verify_archive(path, expected):
+def installer_command(installer):
+    """The command line that installs a downloaded release quietly over this copy."""
+    return [str(installer), *INSTALLER_ARGS]
+
+
+def verify_download(path, expected):
     if not re.fullmatch(r"[a-f0-9]{64}", expected):
         raise ValueError("Invalid update checksum.")
     digest = hashlib.sha256()
@@ -85,7 +88,7 @@ def download_release(asset, destination, progress=lambda _percent: None, cancell
     received = 0
     started = time.monotonic()
     try:
-        with requests.get(asset["url"], headers={"User-Agent": "Sidro-Updater"}, timeout=(5, 30), stream=True) as response:
+        with requests.get(asset["url"], headers={"User-Agent": HEADERS["User-Agent"]}, timeout=(5, 30), stream=True) as response:
             response.raise_for_status()
             parsed = urlparse(response.url)
             if parsed.scheme != "https" or parsed.hostname not in ("github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"):
@@ -103,7 +106,7 @@ def download_release(asset, destination, progress=lambda _percent: None, cancell
                     progress(min(99, received * 100 // asset["size"]))
         if received != asset["size"]:
             raise ValueError("Update download is incomplete.")
-        verify_archive(destination, asset["sha256"])
+        verify_download(destination, asset["sha256"])
     except Exception:
         Path(destination).unlink(missing_ok=True)
         raise

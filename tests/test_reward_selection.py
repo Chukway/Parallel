@@ -44,22 +44,22 @@ class RewardNameTests(unittest.TestCase):
         source = iter(texts)
         scanner = SimpleNamespace(_selected_name_cache={}, _read_name_crop_text=lambda crop: next(source),
                                   _card_rects=lambda frame: namespace["config"].REWARD_CARD_RECTS)
-        return namespace["_detect_selected_slot_from_names"](scanner, np.zeros((400, 1100, 3), np.uint8), "Hitakumori")
+        return namespace["_detect_selected_slot_from_names"](scanner, np.zeros((400, 1100, 3), np.uint8), "Voidwalker")
 
     def test_short_fragment_cannot_select_an_unpicked_card(self):
-        self.assertIsNone(self.detect(["", "", "ori", ""]))
+        self.assertIsNone(self.detect(["", "", "ker", ""]))
 
     def test_fragment_cannot_outscore_the_actual_player(self):
-        self.assertEqual(self.detect(["ori", "", "Hitakumori", ""]), 2)
+        self.assertEqual(self.detect(["ker", "", "Voidwalker", ""]), 2)
 
     def test_fragment_cannot_outscore_a_minor_name_ocr_error(self):
-        self.assertEqual(self.detect(["ori", "", "Hitakumorl", ""]), 2)
+        self.assertEqual(self.detect(["ker", "", "Voidwalkcr", ""]), 2)
 
     def test_full_name_among_other_players_and_ocr_attempts_is_supported(self):
-        self.assertEqual(self.detect(["OtherPlayer", "", "SomeoneElse\nHitakumori\nHitakumorl", ""]), 2)
+        self.assertEqual(self.detect(["OtherPlayer", "", "SomeoneElse\nVoidwalker\nVoidwalkcr", ""]), 2)
 
     def test_multiple_matching_cards_remain_ambiguous(self):
-        self.assertIsNone(self.detect(["Hitakumori", "", "Hitakumori", ""]))
+        self.assertIsNone(self.detect(["Voidwalker", "", "Voidwalker", ""]))
 
 
 class RewardSelectionStatusTests(unittest.TestCase):
@@ -141,11 +141,11 @@ class RewardNameReadTests(unittest.TestCase):
         prepared = np.zeros((192, 624, 3), np.uint8)
         scanner = self.reader(Mock(return_value=prepared))
         scanner._ocr.read.side_effect = [
-            [SimpleNamespace(raw_text="Hitakumori"), SimpleNamespace(raw_text="OtherPlayer")],
-            [SimpleNamespace(raw_text="Hitakumori"), SimpleNamespace(raw_text="SomeoneElse")],
+            [SimpleNamespace(raw_text="Voidwalker"), SimpleNamespace(raw_text="OtherPlayer")],
+            [SimpleNamespace(raw_text="Voidwalker"), SimpleNamespace(raw_text="SomeoneElse")],
         ]
         text = scanner._read_name_crop_text(crop)
-        self.assertEqual(text, "Hitakumori\nOtherPlayer\nSomeoneElse")
+        self.assertEqual(text, "Voidwalker\nOtherPlayer\nSomeoneElse")
         scanner._ocr.read_whole.assert_not_called()
         self.assertIs(scanner._ocr.read.call_args_list[0].args[0], prepared)
         self.assertIs(scanner._ocr.read.call_args_list[1].args[0], crop)
@@ -153,8 +153,8 @@ class RewardNameReadTests(unittest.TestCase):
     def test_raw_detection_remains_available_if_preprocessing_fails(self):
         crop = np.zeros((96, 312, 3), np.uint8)
         scanner = self.reader(Mock(side_effect=RuntimeError("preprocessing failed")))
-        scanner._ocr.read.return_value = [SimpleNamespace(raw_text="Hitakumori")]
-        self.assertEqual(scanner._read_name_crop_text(crop), "Hitakumori")
+        scanner._ocr.read.return_value = [SimpleNamespace(raw_text="Voidwalker")]
+        self.assertEqual(scanner._read_name_crop_text(crop), "Voidwalker")
         scanner._ocr.read.assert_called_once()
         scanner._ocr.read_whole.assert_not_called()
 

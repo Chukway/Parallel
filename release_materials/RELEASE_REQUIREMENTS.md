@@ -1,4 +1,4 @@
-# Sidro distribution requirements
+# Parallel distribution requirements
 
 Keep this document with every portable release. The repository's
 `release_materials` directory is the maintained original; files under `dist`
@@ -19,7 +19,7 @@ Automated checks supplement both first-hand testing stages.
 
 ## Required distribution contents
 
-- `LICENSE` is the canonical root MIT license for Sidro's original code. The
+- `LICENSE` is the canonical root MIT license for Parallel's original code. The
   bundler copies it without changes; third-party materials retain their terms.
 - `DEPENDENCY_BASELINE.md` records the dependency baseline and accepted upstream
   compatibility constraints. The lock and inventory record each package version;
@@ -57,7 +57,7 @@ the document gate rejects optional OCR runtime folders and metadata in `_interna
    assets actually distributed. Check inventory entries without collected
    license files rather than assuming package metadata is sufficient.
 2. Review every dependency's terms, including GPL/LGPL libraries and native
-   components. Sidro's original code uses MIT; that choice does not replace
+   components. Parallel's original code uses MIT; that choice does not replace
    dependency licenses or their notice, source and replacement requirements.
 3. Keep corresponding library source available for the exact binaries shipped,
    including library modifications and necessary build information. The Qt

@@ -52,13 +52,13 @@ _OCR_WORKERS_LOCK = threading.Lock()
 
 def _hide_ocr_subprocess_windows():
     """Hide backend helper consoles inside the dedicated OCR worker only."""
-    if os.name != "nt" or getattr(subprocess.Popen, "_sidro_hidden_ocr_helpers", False):
+    if os.name != "nt" or getattr(subprocess.Popen, "_parallel_hidden_ocr_helpers", False):
         return
     original_popen = subprocess.Popen
     signature = inspect.signature(original_popen)
 
     class _HiddenOCRPopen(original_popen):
-        _sidro_hidden_ocr_helpers = True
+        _parallel_hidden_ocr_helpers = True
 
         def __init__(self, *args, **kwargs):
             # Binding preserves callers that pass creationflags positionally,

@@ -1,4 +1,4 @@
-# Sidro Windows x64 / Python 3.12 shared source and release lock.
+# Parallel Windows x64 / Python 3.12 shared source and release lock.
 # Newest upstream-compatible stable packages verified against PyPI 2026-10-06.
 # See release_materials/DEPENDENCY_BASELINE.md for reviewed exceptions.
 # Install with --no-deps; verify with tools/check_dependencies.py.

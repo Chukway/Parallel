@@ -426,6 +426,67 @@ class RewardHistoryTests(unittest.TestCase):
             self.assertEqual(tab.history.recent()[0]["added"], "a_prime_blueprint")
 
 
+class RewardFailureTests(unittest.TestCase):
+    ROWS = [{"display_name": "A Prime Blueprint", "url_name": "a_prime_blueprint", "price": 10, "slot_index": 0},
+            {"display_name": "B Prime Barrel", "url_name": "b_prime_barrel", "price": 5, "slot_index": 1}]
+
+    def test_failures_are_numbered_in_order_and_survive_a_restart(self):
+        from reward_history import RewardHistory
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "h.json"
+            history = RewardHistory(path)
+            for screen in ("s1", "s2", "s3"):
+                history.record(screen, self.ROWS)
+            self.assertEqual(history.mark_failed("s1"), 1)
+            self.assertEqual(history.mark_failed("s3"), 2)
+            self.assertEqual(history.mark_failed("s1"), 1)         # same screen keeps its number
+            self.assertEqual(history.mark_failed("missing"), 0)
+            again = RewardHistory(path)
+            self.assertEqual(again.mark_failed("s2"), 3)
+            self.assertEqual({s["id"]: s.get("failure_no") for s in again.screens}, {"s1": 1, "s2": 3, "s3": 2})
+
+    def test_numbers_are_not_reused_after_old_screens_drop_out(self):
+        from reward_history import RewardHistory
+        with tempfile.TemporaryDirectory() as tmp:
+            history = RewardHistory(Path(tmp) / "h.json")
+            history.record("old", self.ROWS)
+            history.mark_failed("old")
+            history.screens.clear()
+            history.save()
+            history.record("new", self.ROWS)
+            self.assertEqual(RewardHistory(history.path).mark_failed("new"), 2)
+
+    def test_tab_labels_failures_shows_owned_counts_and_filters(self):
+        from PySide6.QtWidgets import QApplication
+        QApplication.instance() or QApplication([])
+        from account_store import AccountStore
+        from reward_history import RewardHistory
+        from trading_tools_ui import RewardHistoryTab
+        with tempfile.TemporaryDirectory() as tmp:
+            kwargs = {"path": Path(tmp) / "acc.json"} if "path" in AccountStore.__init__.__code__.co_varnames else {}
+            store = AccountStore(**kwargs)
+            store.increment_inventory_item("b_prime_barrel", "B Prime Barrel", quantity=3)
+            tab = RewardHistoryTab(store, lambda m, s="info", ms=0: None)
+            tab.history = RewardHistory(Path(tmp) / "h.json")
+            tab.history.record("ok", self.ROWS[:1])
+            tab.history.mark_picked("ok", "a_prime_blueprint")
+            tab.history.record("bad", self.ROWS)
+            tab.history.mark_failed("bad")
+            tab.history.save()
+            tab.reload()
+            texts = {(r, c): tab.table.item(r, c).text() for r in range(tab.table.rowCount()) for c in range(6)}
+            self.assertIn("Failure 1", texts[(0, 0)])
+            self.assertEqual([texts[(0, 2)], texts[(1, 2)]], ["x0", "x3"])
+            self.assertEqual(texts[(0, 5)], "Which one?")
+            tab.failures_only.setChecked(True)
+            self.assertEqual(tab.table.rowCount(), 2)
+            tab.table.setCurrentCell(1, 1)
+            tab.add_selected()
+            self.assertEqual(store.items["b_prime_barrel"].quantity, 4)
+            self.assertIn("(fixed)", tab.table.item(0, 0).text())
+            self.assertEqual(tab.table.item(1, 5).text(), "Added by you")
+
+
 class CombineSetTests(unittest.TestCase):
     def parts(self):
         return [

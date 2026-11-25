@@ -1,6 +1,6 @@
-"""Sidro configuration, defaults, resource paths and local data migration.
+"""Parallel configuration, defaults, resource paths and local data migration.
 
-Runtime files normally live under %LOCALAPPDATA%/Sidro. Source diagnostics can
+Runtime files normally live under %LOCALAPPDATA%/Parallel. Source diagnostics can
 override that directory with TTB_DATA_DIR. Tokens, personal settings, account
 state and generated files must remain outside the published source snapshot.
 """
@@ -16,11 +16,9 @@ from settings_validation import MAX_SETTINGS_BYTES, sanitize_settings
 
 APP_NAME = "Parallel"
 APP_SLUG = "Parallel"
-LEGACY_APP_SLUG = "Sidro"   # data folder used before the rename; copied once, never deleted
-APP_VERSION = "1.2.4"
-# Parallel is a fork with no release feed of its own; never offer the original
-# project's releases as updates. Set to True only after pointing update_core at your own repo.
-UPDATE_SOURCE_ENABLED = False
+APP_VERSION = "1.2.5"
+# Releases come from update_core.REPOSITORY. Set to False to turn update checks off.
+UPDATE_SOURCE_ENABLED = True
 IS_FROZEN = bool(getattr(sys, "frozen", False))
 APP_DIR = Path(sys.executable).resolve().parent if IS_FROZEN else Path(__file__).resolve().parent
 # A dev version is anything run from source or from a folder named "...-Dev". It never goes to the tray,
@@ -46,57 +44,12 @@ def _choose_user_data_dir() -> Path:
         local_appdata = os.getenv("LOCALAPPDATA")
         base = Path(local_appdata) if local_appdata else Path.home() / "AppData" / "Local"
         candidate = base / APP_SLUG
-        legacy = base / LEGACY_APP_SLUG
-        if not candidate.exists() and legacy.is_dir():
-            # One-time copy of the pre-rename data folder; the old one is left untouched.
-            try:
-                shutil.copytree(legacy, candidate, ignore=shutil.ignore_patterns("webprofile", "*.tmp"))
-            except OSError:
-                pass
     candidate = candidate.resolve()
     candidate.mkdir(parents=True, exist_ok=True)
     return candidate
 
 
-def _migrate_legacy_user_data(destination: Path):
-    """Copy legacy files once, retaining the originals and any existing data."""
-    legacy = APP_DIR / "user_data"
-    marker = destination / ".legacy_user_data_migrated"
-    if os.getenv("TTB_DATA_DIR") or marker.exists() or not legacy.is_dir():
-        return
-    if legacy.resolve() == destination.resolve():
-        return
-    import tempfile
-
-    for source in legacy.rglob("*"):
-        # Do not migrate obsolete access credentials or quota ledgers.
-        if source.name.casefold() in {"patreon_auth.bin", "du.bin", "daily_usage.bin"}:
-            continue
-        if source.is_symlink() or not source.is_file():
-            continue
-        target = destination / source.relative_to(legacy)
-        if target.exists():
-            continue
-        target.parent.mkdir(parents=True, exist_ok=True)
-        temporary = None
-        try:
-            with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as handle:
-                temporary = Path(handle.name)
-            shutil.copy2(source, temporary)
-            # On Windows, rename fails if another process created the target.
-            try:
-                temporary.rename(target)
-            except FileExistsError:
-                pass
-        finally:
-            if temporary is not None:
-                temporary.unlink(missing_ok=True)
-    # Prevent deleted credentials from being restored on subsequent launches.
-    marker.write_text("Legacy user_data migration completed.\n", encoding="utf-8")
-
-
 USER_DATA_DIR = _choose_user_data_dir()
-_migrate_legacy_user_data(USER_DATA_DIR)
 ENV_PATH = USER_DATA_DIR / ".env"
 
 # Source checkouts may keep a local .env for development, but packaged builds
@@ -165,11 +118,11 @@ ACTIVE_ROI_PRESET = "inventory_sell"   # ← Active preset
 # Resolution hint — used to auto-select correct preset at startup
 BASE_SCREEN_WIDTH = 1920
 BASE_SCREEN_HEIGHT = 1080
-SCREEN_RESOLUTION = os.getenv("SIDRO_SCREEN_RESOLUTION", "auto").strip().lower()
+SCREEN_RESOLUTION = os.getenv("PARALLEL_SCREEN_RESOLUTION", "auto").strip().lower()
 
 
 def _detected_screen_size() -> tuple[int, int]:
-    """Return the primary display size, falling back to Sidro's 1080p baseline."""
+    """Return the primary display size, falling back to Parallel's 1080p baseline."""
     try:
         if sys.platform.startswith("win"):
             import ctypes
@@ -335,7 +288,7 @@ OCR_CONFIDENCE_THRESHOLD = 0.45  # Reject detections below this confidence
 OCR_BATCH_SIZE = 6               # Conservative default for OCR backends that batch crops
 OCR_CANVAS_SIZE = 768            # OCR detector fallback canvas
 OCR_DIGIT_CANVAS_SIZE = 320      # Quantity badge detector fallback canvas
-OCR_DEVICE_MODE = os.getenv("WFM_OCR_GPU", "cpu").strip().lower()  # Sidro 1.0 defaults to CPU. Dev override: auto | 0 | 1
+OCR_DEVICE_MODE = os.getenv("WFM_OCR_GPU", "cpu").strip().lower()  # Parallel 1.0 defaults to CPU. Dev override: auto | 0 | 1
 OCR_USE_GPU = OCR_DEVICE_MODE in ("1", "true", "gpu", "yes")
 OCR_AUTO_GPU_MAX_UTIL_PERCENT = 75
 OCR_AUTO_GPU_MAX_MEMORY_MB = 5000
@@ -568,10 +521,10 @@ STEP_OVERLAY_HIDE_SECONDS = 0    # 0 = stay up while the scan is on; N = hide N 
 REWARD_MARKET_HINTS = True       # show a vaulted "V" and a price-direction arrow on the reward overlay
 REWARD_OWNED_STYLE = "cards"     # cards: plat/ducats above each card, number + set below | panel: ranked list in the top-left corner | inline: "Own 2/4" beside the price | list: set parts under each reward
 REWARD_RANK_BY = "plat"          # panel order: plat | ducats
-SIDRO_NOTIFICATION_MASCOT = False
-SIDRO_VISUAL_CHARACTER = "robot" # robot | maid
-SIDRO_WELCOME_VISUAL_FREQUENCY = "once_a_day" # once_a_day | every_launch | never
-SIDRO_WELCOME_AUDIO_ENABLED = True
+PARALLEL_NOTIFICATION_MASCOT = False
+PARALLEL_VISUAL_CHARACTER = "robot" # robot | maid
+PARALLEL_WELCOME_VISUAL_FREQUENCY = "once_a_day" # once_a_day | every_launch | never
+PARALLEL_WELCOME_AUDIO_ENABLED = True
 UPDATE_CHECK_FREQUENCY = "daily"
 UI_FONT_FAMILY = "Segoe UI"
 UI_FONT_SIZE = 12
@@ -601,21 +554,21 @@ if APP_SETTINGS_PATH.exists():
         STEP_OVERLAY_HIDE_SECONDS = int(_settings.get("step_overlay_hide_seconds", STEP_OVERLAY_HIDE_SECONDS))
         REWARD_OWNED_STYLE = str(_settings.get("reward_owned_style", REWARD_OWNED_STYLE))
         REWARD_RANK_BY = str(_settings.get("reward_rank_by", REWARD_RANK_BY))
-        SIDRO_NOTIFICATION_MASCOT = bool(
-            _settings.get("sidro_notification_mascot", SIDRO_NOTIFICATION_MASCOT)
+        PARALLEL_NOTIFICATION_MASCOT = bool(
+            _settings.get("parallel_notification_mascot", PARALLEL_NOTIFICATION_MASCOT)
         )
-        _sidro_visual_character = str(
-            _settings.get("sidro_visual_character", SIDRO_VISUAL_CHARACTER)
+        _parallel_visual_character = str(
+            _settings.get("parallel_visual_character", PARALLEL_VISUAL_CHARACTER)
         ).strip().lower()
-        if _sidro_visual_character in ("robot", "maid"):
-            SIDRO_VISUAL_CHARACTER = _sidro_visual_character
+        if _parallel_visual_character in ("robot", "maid"):
+            PARALLEL_VISUAL_CHARACTER = _parallel_visual_character
         _welcome_visual_frequency = str(
-            _settings.get("sidro_welcome_visual_frequency", SIDRO_WELCOME_VISUAL_FREQUENCY)
+            _settings.get("parallel_welcome_visual_frequency", PARALLEL_WELCOME_VISUAL_FREQUENCY)
         ).strip().lower()
         if _welcome_visual_frequency in ("once_a_day", "every_launch", "never"):
-            SIDRO_WELCOME_VISUAL_FREQUENCY = _welcome_visual_frequency
-        SIDRO_WELCOME_AUDIO_ENABLED = bool(
-            _settings.get("sidro_welcome_audio_enabled", SIDRO_WELCOME_AUDIO_ENABLED)
+            PARALLEL_WELCOME_VISUAL_FREQUENCY = _welcome_visual_frequency
+        PARALLEL_WELCOME_AUDIO_ENABLED = bool(
+            _settings.get("parallel_welcome_audio_enabled", PARALLEL_WELCOME_AUDIO_ENABLED)
         )
         UPDATE_CHECK_FREQUENCY = _settings.get("update_check_frequency", UPDATE_CHECK_FREQUENCY)
         WFM_INGAME_NAME = str(_settings.get("wfm_ingame_name", WFM_INGAME_NAME)).strip()

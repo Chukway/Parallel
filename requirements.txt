@@ -6,7 +6,7 @@
 dxcam==0.3.0           # DXGi/WGC-backed ultra-low-latency capture (primary)
 mss==10.2.0            # Fallback cross-platform capture
 
-# OCR - Sidro base build
+# OCR - Parallel base build
 rapidocr==3.9.2
 paddleocr==3.7.0
 paddlepaddle==3.3.1

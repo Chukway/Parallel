@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SKIP_DIRS = {".venv-sidro", ".venv", "venv", "__pycache__", ".git", "dist", "build", "node_modules"}
+SKIP_DIRS = {".venv-parallel", ".venv", "venv", "__pycache__", ".git", "dist", "build", "node_modules"}
 TEXT_SUFFIXES = {".py", ".md", ".txt", ".json", ".yml", ".yaml", ".toml", ".ps1", ".cmd", ".bat", ".spec",
                  ".cfg", ".ini", ".env", ".html", ".css", ".lock", ".sh", ".gitignore", ".example", ""}
 RISKY_FILES = re.compile(r"(^|/)(\.env|.*\.log|debug_.*|.*_ocr\.png|account_state\.json|app_settings\.json|"

@@ -6,7 +6,7 @@ users can follow the download instructions in `README.md` instead.
 Parallel is a fork of Sidro (MIT, by Hitakumori). After editing files, run
 `python -B tools/update_publication_manifest.py --apply` to review them and refresh
 the hash list and `.gitignore`, then follow the steps below. A beginner-friendly
-checklist is in `PUBLISHING.md`. The original text below still says "Sidro" in places.
+checklist is in `PUBLISHING.md`. This document describes the publication checks.
 
 The public source set is a reviewed client snapshot. `PUBLIC_SOURCE_FILES.json`
 lists exact paths and SHA256 hashes. `.gitignore` ignores everything else,
@@ -60,7 +60,7 @@ line endings and hashes when Git stages files.
 - Environments, OCR model downloads, executables, archives and build outputs.
 
 The client contains public Warframe Market and GitHub URLs, plus the voluntary
-donation link. These are public addresses, not credentials. No Sidro access
+donation link. These are public addresses, not credentials. No access
 service, membership verification key, or grant credentials are used.
 
 The public source can run with `setup_environment.ps1` and `run_cpu.bat`.
@@ -76,9 +76,9 @@ screenshot fixtures and their diagnostic datasets are also omitted.
 All app features are available without membership, access codes, or daily quotas.
 Support reminders are voluntary and count app runtime only on the local PC.
 They do not send analytics or unlock features. The client never contacts the
-retired Sidro authentication service.
+retired authentication service.
 
-Sidro's original code uses the MIT License in the root `LICENSE` file. It permits
+Parallel's code uses the MIT License in the root `LICENSE` file. It permits
 reuse, modification and commercial distribution with the copyright and license
 notice retained. The source guard requires this file in the reviewed export;
 release builders also copy and verify it in every package.

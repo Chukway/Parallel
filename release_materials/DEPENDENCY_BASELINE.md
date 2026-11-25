@@ -1,4 +1,4 @@
-# Sidro dependency baseline
+# Parallel dependency baseline
 
 Baseline prepared: **2026-10-06, Windows x64, Python 3.12**. The local interpreter
 used to prepare this baseline is Python 3.12.14. This document describes package
@@ -44,7 +44,7 @@ still describes the complete build environment, including packages not shipped.
 - The three OCR repair manifests contain each backend's complete locked closure.
 - `DEPENDENCY_INVENTORY.json` in each built package records installed versions,
   interpreter/Qt versions and the bundled lock's SHA-256. Keep it with that build.
-- Source launchers and normal builds use the same `.venv-sidro`.
+- Source launchers and normal builds use the same `.venv-parallel`.
 
 ## Main versions
 
@@ -90,19 +90,19 @@ endpoints: [PaddleX](https://pypi.org/pypi/paddlex/3.7.2/json),
 
 The [OpenCV packaging guidance](https://pypi.org/project/opencv-python/) requires
 selecting one OpenCV distribution: the variants share the `cv2` namespace, and
-Contrib includes the main modules. Sidro uses PaddleX's required Contrib provider
+Contrib includes the main modules. Parallel uses PaddleX's required Contrib provider
 for preprocessing and both OCR engines. Standard/headless providers are excluded.
 
 RapidOCR 3.9.2 declares `opencv-python>=4.5.1.48`, naming the standard distribution.
 The Contrib provider's core modules and version satisfy that runtime requirement,
-but ordinary `pip check` reports the absent named distribution. Sidro leaves
+but ordinary `pip check` reports the absent named distribution. Parallel leaves
 upstream metadata intact and exposes that difference explicitly. The dedicated
 checker accepts this one reviewed substitution only for RapidOCR 3.9.2, checks
 the required version, checks the loaded cv2 binary, rejects overlapping providers,
 and checks every other base/activated-extra requirement without substitutions.
 OCR inference must also pass when preparing an upgraded baseline.
 
-PaddlePaddle 3.3.1 additionally requires `enable_mkldnn=False` in Sidro's
+PaddlePaddle 3.3.1 additionally requires `enable_mkldnn=False` in Parallel's
 PaddleOCR constructor on the tested Windows CPU stack. Its default oneDNN PIR
 path failed real inference with `ConvertPirAttribute2RuntimeAttribute`; the
 existing environment flags did not override the API default. The explicit
@@ -119,5 +119,5 @@ required closure. Regenerate them after dependency updates.
 PySide6 6.11.2 remains the newest stable package checked. Qt's current [supported
 platforms](https://doc.qt.io/qt-6/supported-platforms.html) include Windows 10 1809+
 and Windows 11, and identify Qt 6.12 as the final series supporting Windows 10.
-Discuss a later Qt upgrade that changes OS support before altering Sidro's target.
-Upstream support does not replace testing Sidro on the actual target OS.
+Discuss a later Qt upgrade that changes OS support before altering Parallel's target.
+Upstream support does not replace testing Parallel on the actual target OS.

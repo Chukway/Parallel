@@ -18,8 +18,8 @@ def sanitize_settings(data: object) -> dict:
         raise ValueError("Settings must be a JSON object.")
     clean = {}
     booleans = (
-        "alert_sound_enabled", "visual_notifications_enabled", "sidro_notification_mascot",
-        "sidro_welcome_audio_enabled", "ocr_fallback_enabled", "ducat_filter_enabled",
+        "alert_sound_enabled", "visual_notifications_enabled", "parallel_notification_mascot",
+        "parallel_welcome_audio_enabled", "ocr_fallback_enabled", "ducat_filter_enabled",
         "reward_price_check_enabled", "step_overlay_enabled", "step_overlay_labels",
     )
     for key in booleans:
@@ -38,8 +38,8 @@ def sanitize_settings(data: object) -> dict:
         ("update_check_frequency", ("daily", "weekly", "monthly", "never")),
         ("notification_corner", ("top_left", "top_right", "bottom_left", "bottom_right")),
         ("step_overlay_corner", ("top_left", "top_right", "bottom_left", "bottom_right")),
-        ("sidro_visual_character", ("robot", "maid")),
-        ("sidro_welcome_visual_frequency", ("once_a_day", "every_launch", "never")),
+        ("parallel_visual_character", ("robot", "maid")),
+        ("parallel_welcome_visual_frequency", ("once_a_day", "every_launch", "never")),
         ("ui_table_text_alignment", ("left", "center", "right")),
         ("ocr_fallback_engine", ("rapidocr", "paddleocr")),
         ("reward_owned_style", ("cards", "panel", "inline", "list")),
@@ -50,7 +50,7 @@ def sanitize_settings(data: object) -> dict:
     for key, limit in (
         ("alert_sound_custom_path", 4096), ("alert_sound_style", 80),
         ("wfm_ingame_name", 64), ("wfm_token", 16384),
-        ("sidro_welcome_visual_last_shown", 10),
+        ("parallel_welcome_visual_last_shown", 10),
         ("ui_theme", 40), ("ui_accent", 40),
     ):
         value = data.get(key)

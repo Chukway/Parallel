@@ -467,7 +467,7 @@ class RewardScanner:
                 candidates.append((idx, 0, ""))
                 continue
             # Match complete player names, preserving separate OCR attempts.
-            # partial_ratio treats even "ori" as a perfect match for Hitakumori.
+            # partial_ratio treats even "ker" as a perfect match for Voidwalker.
             names = {_compact(token) for token in text.split()}
             names.update(_compact(line) for line in text.splitlines())
             score = max(

@@ -1,15 +1,12 @@
-"""Updater checks using fixtures; never replace a real installation."""
+"""Updater checks using fixtures; never run a real installer."""
 import hashlib
-import json
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
-import zipfile
 
 import requests
 import update_core as core
-import updater_helper as helper
 
 
 class Response:
@@ -39,6 +36,10 @@ class UpdatesTests(unittest.TestCase):
         for value in ('v1.1.0-beta', 'garbage', '1.1'):
             with self.assertRaises(ValueError): core.version(value)
 
+    def test_the_asset_is_the_installer_from_this_repository(self):
+        self.assertEqual(core.ASSET_NAME, 'Parallel-Setup.exe')
+        self.assertEqual(core.REPOSITORY, 'Chukway/Parallel')
+
     def test_empty_repository_and_old_release(self):
         with patch.object(core.requests, 'get', return_value=Response(status=404)):
             self.assertIsNone(core.check_release('1.0.0'))
@@ -48,20 +49,23 @@ class UpdatesTests(unittest.TestCase):
     def test_stable_asset_and_prerelease(self):
         data = release()
         with patch.object(core.requests, 'get', return_value=Response(data)):
-            self.assertIsNotNone(core.check_release('1.0.0')['asset'])
+            found = core.check_release('1.0.0')
+        self.assertEqual(found['version'], 'v1.1.0')
+        self.assertEqual(found['asset']['sha256'], 'a' * 64)
         data['prerelease'] = True
         with patch.object(core.requests, 'get', return_value=Response(data)):
             self.assertIsNone(core.check_release('1.0.0'))
 
-    def test_versioned_release_asset(self):
+    def test_a_release_without_the_installer_still_reports_but_is_not_installable(self):
         data = release()
-        data['assets'][0]['name'] = 'Sidro-windows-v1.1.zip'
-        data['assets'][0]['browser_download_url'] = f'https://github.com/{core.REPOSITORY}/releases/download/v1.1.0/Sidro-windows-v1.1.zip'
+        data['assets'][0]['name'] = 'something-else.zip'
         with patch.object(core.requests, 'get', return_value=Response(data)):
-            self.assertIsNotNone(core.check_release('1.0.0')['asset'])
+            found = core.check_release('1.0.0')
+        self.assertEqual(found['version'], 'v1.1.0')
+        self.assertIsNone(found['asset'])
 
     def test_unverified_or_wrong_host_asset_is_not_installable(self):
-        for field, value in [('digest', None), ('browser_download_url', 'https://example.com/evil.zip')]:
+        for field, value in [('digest', None), ('browser_download_url', 'https://example.com/evil.exe')]:
             data = release()
             data['assets'][0][field] = value
             with patch.object(core.requests, 'get', return_value=Response(data)):
@@ -70,7 +74,7 @@ class UpdatesTests(unittest.TestCase):
     def test_download_success_cancel_corruption_and_oversize(self):
         asset = {'url': 'https://github.com/file', 'size': 3, 'sha256': hashlib.sha256(b'abc').hexdigest()}
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory)/'release.zip'
+            path = Path(directory) / core.ASSET_NAME
             with patch.object(core.requests, 'get', return_value=Response(chunks=[b'a', b'bc'])):
                 core.download_release(asset, path)
             self.assertEqual(path.read_bytes(), b'abc')
@@ -79,56 +83,29 @@ class UpdatesTests(unittest.TestCase):
                     with self.assertRaises(Exception): core.download_release(asset, path, cancelled=cancelled)
                 self.assertFalse(path.exists())
 
-    def test_valid_archive(self):
+    def test_download_from_an_unexpected_host_is_refused(self):
+        asset = {'url': 'https://github.com/file', 'size': 3, 'sha256': hashlib.sha256(b'abc').hexdigest()}
+        response = Response(chunks=[b'abc'])
+        response.url = 'https://example.com/file'
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            archive = root/'release.zip'
-            with zipfile.ZipFile(archive, 'w') as output:
-                for name in ('Sidro.exe', 'SidroUpdater.exe', '_internal/test.dll'):
-                    output.writestr('Sidro/'+name, b'fixture')
-            self.assertEqual(helper.extract_release(archive, root/'stage'), root/'stage'/'Sidro')
+            path = Path(directory) / core.ASSET_NAME
+            with patch.object(core.requests, 'get', return_value=response):
+                with self.assertRaises(ValueError): core.download_release(asset, path)
+            self.assertFalse(path.exists())
 
-    def test_unsafe_archives(self):
-        for name in ('../outside', '/absolute', 'Sidro/user_data/.env', 'Sidro/CON.txt', 'Sidro/file:stream', 'Sidro\\file'):
-            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
-                archive = root/'release.zip'
-                with zipfile.ZipFile(archive, 'w') as output: output.writestr(name, b'x')
-                with self.assertRaises(ValueError): helper.extract_release(archive, root/'stage')
+    def test_installer_runs_quietly_and_closes_the_old_copy(self):
+        command = core.installer_command(Path('C:/temp/Parallel-Setup.exe'))
+        self.assertTrue(command[0].endswith('Parallel-Setup.exe'))
+        self.assertIn('/SILENT', command)
+        self.assertIn('/CLOSEAPPLICATIONS', command)
 
-    def test_rollback_and_backup(self):
-        for fail in (False, True):
-            with tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
-                target, stage, backup = [root / name for name in ('Sidro', 'stage', 'backup')]
-                target.mkdir(); stage.mkdir()
-                (target/'Sidro.exe').write_bytes(b'old')
-                (stage/'Sidro.exe').write_bytes(b'new')
-                def launch(exe):
-                    self.assertEqual(exe, target/'Sidro.exe')
-                    if fail: raise OSError('simulated launch failure')
-                if fail:
-                    with self.assertRaises(OSError): helper.install_release(stage, target, backup, launch)
-                    self.assertEqual((target/'Sidro.exe').read_bytes(), b'old')
-                else:
-                    helper.install_release(stage, target, backup, launch)
-                    self.assertEqual((target/'Sidro.exe').read_bytes(), b'new')
-                    self.assertEqual((backup/'Sidro.exe').read_bytes(), b'old')
-
-    def test_new_app_startup_confirmation(self):
-        with tempfile.TemporaryDirectory() as directory:
-            work = Path(directory)
-            exe = work/'Sidro.exe'
-            class Started:
-                def poll(self):
-                    (work/'ready').write_text('1.1.0')
-                    return None
-            with patch.object(helper.subprocess, 'Popen', return_value=Started()):
-                helper.restart_and_check(exe, work)
-            class Failed:
-                def poll(self): return 1
-            with patch.object(helper.subprocess, 'Popen', return_value=Failed()):
-                with self.assertRaises(RuntimeError): helper.restart_and_check(exe, work)
+    def test_automatic_check_is_not_due_until_the_interval_passes(self):
+        from datetime import date
+        today = date(2026, 11, 25)
+        self.assertTrue(core.automatic_check_due('daily', '2026-11-24', today))
+        self.assertFalse(core.automatic_check_due('daily', '2026-11-25', today))
+        self.assertFalse(core.automatic_check_due('weekly', '2026-11-20', today))
+        self.assertFalse(core.automatic_check_due('never', '', today))
 
 
 if __name__ == '__main__':

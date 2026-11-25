@@ -1,6 +1,6 @@
-﻿# Sidro source guide
+﻿# Parallel source guide
 
-Sidro's source repository contains the application, source launchers, development
+Parallel's source repository contains the application, source launchers, development
 checks and release materials. The portable Windows release is a separate package;
 it includes RapidOCR, while the development environment also supports optional
 PaddleOCR. Some older UI modules and launchers remain for compatibility and are
@@ -37,9 +37,6 @@ current Dashboard, dialogs and overlays. Warframe Market requests go through
 | [update_core.py](update_core.py) | Checks public GitHub releases and verifies downloaded update assets. |
 | [update_ui.py](update_ui.py) | Runs update checks and presents download/install controls without blocking the UI. |
 | [updater_helper.py](updater_helper.py) | Separate updater executable that replaces the portable installation. |
-| [account_ui.py](account_ui.py) | Older CustomTkinter account/listing and token dialogs; current dialogs are in `qt_ui.py`. |
-| [inventory_ui.py](inventory_ui.py) | Older CustomTkinter inventory review window; current review is in `qt_ui.py`. |
-| [pillar4_ui.py](pillar4_ui.py) | Older CustomTkinter confirmation dialogs and UI controller. |
 
 ## Source setup and launchers
 
@@ -81,9 +78,7 @@ in [DEPENDENCY_BASELINE.md](release_materials/DEPENDENCY_BASELINE.md). Use
 
 | File | Purpose |
 |---|---|
-| [build_exe.ps1](build_exe.ps1) | Builds the app/updater, bundles notices and required sources, and creates the release ZIP. |
-| [build_exe.bat](build_exe.bat) | Batch entry point for the PowerShell release builder. |
-| [Sidro.spec](Sidro.spec) | PyInstaller configuration for the RapidOCR-only portable application. |
+| [Parallel.spec](Parallel.spec) | PyInstaller configuration for the RapidOCR-only portable application. |
 | [tools/README.md](tools/README.md) | Lists packaging, dependency, OCR and publication utilities. |
 | [release_materials/README.md](release_materials/README.md) | Explains maintained release documents, licenses and upstream source manifests. |
 | [tests/README.md](tests/README.md) | Explains the public regression checks. |
@@ -101,7 +96,7 @@ in [DEPENDENCY_BASELINE.md](release_materials/DEPENDENCY_BASELINE.md). Use
 | [Parallel.png](Parallel.png) | Parallel logo used by the UI and icon tooling. |
 
 The catalog caches contain public item data. User tokens, inventories, reminder
-timing and preferences live under `%LOCALAPPDATA%\Sidro` and are not source assets.
+timing and preferences live under `%LOCALAPPDATA%\Parallel` and are not source assets.
 
 ## Repository rules and notices
 
@@ -116,7 +111,7 @@ timing and preferences live under `%LOCALAPPDATA%\Sidro` and are not source asse
 | [.gitleaks.toml](.gitleaks.toml) | Secret-scan rules with narrow exceptions for reviewed hashes and public catalog IDs. |
 | [.githooks/pre-commit](.githooks/pre-commit) | Verifies reviewed source bytes and staged files before committing. |
 | [.githooks/pre-push](.githooks/pre-push) | Verifies source/history and scans all refs with Gitleaks before pushing. |
-| [LICENSE](LICENSE) | MIT license for Sidro's original code. |
+| [LICENSE](LICENSE) | MIT license for Parallel's original code. |
 
 GitHub's file-list text is the latest commit message for each path. It records a
 change; these linked guides provide the maintained file descriptions.

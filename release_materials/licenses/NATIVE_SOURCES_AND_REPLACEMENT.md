@@ -1,6 +1,6 @@
 # Additional native library sources and replacement
 
-Sidro distributes unmodified upstream libraries. Matching LGPL source archives
+Parallel distributes unmodified upstream libraries. Matching LGPL source archives
 are included in `sources`; their origins, versions and SHA-256 hashes are in
 `sources/manifest.json`. The bundler verifies these hashes.
 
@@ -11,13 +11,13 @@ Shapely 2.1.2's Windows wheel includes GEOS 3.13.1 under LGPL 2.1 or later.
 and license texts. Shapely's BSD license and GEOS notices are retained under
 `licenses/dependencies/shapely`.
 
-To replace GEOS, close Sidro, copy the portable application, build compatible
+To replace GEOS, close Parallel, copy the portable application, build compatible
 x64 GEOS DLLs from the source using its CMake instructions, and replace the
 GEOS DLLs in `_internal/shapely.libs`. Preserve the C API, DLL names and
 dependencies expected by the wheel, then test the copied application.
 
 Users retain the applicable library modification, replacement, relinking and
-reverse-engineering rights. Sidro does not enforce hashes/signatures of these
+reverse-engineering rights. Parallel does not enforce hashes/signatures of these
 libraries at startup. Updates may overwrite modifications; test and retain
 modified libraries in a separate copy. The license texts define the full terms.
 
@@ -42,12 +42,12 @@ Windows OCR are not offered in Settings or included in the package. Paddle's nat
 runtime DLLs and their GCC source archive, plus crc32c/python-bidi binaries
 and sources, are not included in this package.
 
-Sidro uses thefuzz with RapidFuzz; the unused GPL Levenshtein extension is
+Parallel uses thefuzz with RapidFuzz; the unused GPL Levenshtein extension is
 explicitly excluded. OpenCV's optional FFmpeg video plugin is also excluded:
-Sidro uses still-image capture and OCR and does not open video files. Their
+Parallel uses still-image capture and OCR and does not open video files. Their
 presence in the installed build environment does not mean they are distributed.
 The frozen-package audit checks these exclusions. PyInstaller's bootloader
 license includes its exception allowing distribution of non-free applications.
 
 See `qt/SOURCES_AND_REPLACEMENT.md` for Qt/PySide/Shiboken. These source
-archives contain third-party libraries, not Sidro application source.
+archives contain third-party libraries, not Parallel application source.

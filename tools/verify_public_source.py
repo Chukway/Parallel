@@ -21,11 +21,20 @@ PRIVATE_SUFFIXES = {
     ".7z", ".tar", ".gz", ".bz2", ".xz", ".b64", ".pem", ".key", ".pfx",
     ".p12", ".db", ".sqlite", ".sqlite3", ".log", ".bin",
 }
+# Files that were published once and have since been deleted. Git history keeps
+# them, so the history check accepts their names; their old contents are still
+# scanned for secrets and personal data like everything else.
+RETIRED_FILES = frozenset({
+    "Sidro.spec", "build_exe.ps1", "build_exe.bat", "tools/sidro_version.txt",
+    "tools/updater_version.txt", "tools/make_release_zip.py", "updater_helper.py",
+    "support_reminders.py", "tests/test_support_reminders.py", "account_ui.py",
+    "inventory_ui.py", "pillar4_ui.py",
+})
 SECRET_PATTERNS = {
     "private key": r"-----BEGIN (?:RSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----",
     "provider token": r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{30,}|AKIA[A-Z0-9]{16}|sk-(?:proj-)?[A-Za-z0-9_-]{32,})\b",
     "JWT credential": r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{16,}\b",
-    "access code": r"\bSIDRO-(?:[A-F0-9]{4}-){7}[A-F0-9]{4}\b",
+    "access code": r"\bPARALLEL-(?:[A-F0-9]{4}-){7}[A-F0-9]{4}\b",
     "personal Windows path": r"(?i)\b[A-Z]:[\\/]Users[\\/][^\\/\s\"']+",
     "URL password": r"https?://[^/\s@\"']+:[^/\s@\"']+@",
 }
@@ -191,7 +200,7 @@ def verify_git_index(root: Path, files: dict[str, str], *, history: bool = False
             blob, separator, name = record.partition(" ")
             if not separator or git(root, "cat-file", "-t", blob).strip() != b"blob":
                 continue
-            if name not in approved:
+            if name not in approved and name not in RETIRED_FILES:
                 raise PublicationError(f"Unreviewed file found in Git history: {name}")
             check_content(name, git(root, "cat-file", "blob", blob))
         for email in git(root, "log", "--all", "--format=%ae%n%ce").decode().splitlines():

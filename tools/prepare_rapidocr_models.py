@@ -1,4 +1,4 @@
-"""Download and verify the exact PP-OCRv6 small models used by Sidro's release."""
+"""Download and verify the exact PP-OCRv6 small models used by Parallel's release."""
 import hashlib
 import os
 from pathlib import Path

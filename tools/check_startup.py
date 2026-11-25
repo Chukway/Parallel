@@ -14,8 +14,8 @@ if __name__ == "__main__":
     from PySide6.QtCore import QTimer
     config.WFM_TOKEN = ""
     config.UPDATE_CHECK_FREQUENCY = "never"
-    config.SIDRO_WELCOME_VISUAL_FREQUENCY = "never"
-    config.SIDRO_WELCOME_AUDIO_ENABLED = False
+    config.PARALLEL_WELCOME_VISUAL_FREQUENCY = "never"
+    config.PARALLEL_WELCOME_AUDIO_ENABLED = False
     config.ALERT_SOUND_ENABLED = False
     config.REWARD_PRICE_CHECK_ENABLED = False
     config.PRELOAD_OCR_ON_START = False

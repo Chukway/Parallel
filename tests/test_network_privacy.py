@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def load_network_methods():
-    config = SimpleNamespace(APP_NAME="Sidro", APP_VERSION="1.0.0", WFM_PLATFORM="pc",
+    config = SimpleNamespace(APP_NAME="Parallel", APP_VERSION="1.0.0", WFM_PLATFORM="pc",
                              WFM_LANGUAGE="en", WFM_API_BASE_V2="https://api.warframe.market/v2",
                              WARFRAMESTAT_ITEMS_URL="https://api.warframestat.us/items",
                              DUCAT_CACHE_PATH=None)

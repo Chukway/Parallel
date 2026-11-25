@@ -14,7 +14,7 @@ from unittest.mock import Mock, patch
 class UIReleaseTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.directory = tempfile.TemporaryDirectory(prefix="sidro-ui-test-")
+        cls.directory = tempfile.TemporaryDirectory(prefix="parallel-ui-test-")
         cls.environment = patch.dict(os.environ, {"TTB_DATA_DIR": cls.directory.name, "QT_QPA_PLATFORM": "offscreen"})
         cls.environment.start()
         import qt_ui
@@ -339,46 +339,6 @@ class UIReleaseTests(unittest.TestCase):
         self.assertFalse(hasattr(dashboard, "usage_card"))
         self.assertFalse(hasattr(dashboard, "support_color_timer"))
         self.assertFalse(any(widget.text() == "Support me" for widget in dashboard.findChildren(self.ui.QPushButton)))
-
-    def test_support_reminder_defers_during_scan_then_shows_dismissible_link(self):
-        from support_reminders import SUPPORT_URL, SupportReminders
-        now = [100.0]
-        reminders = SupportReminders(Path(self.directory.name) / "reminder-test.json",
-                                     clock=lambda: now[0], interval=lambda low, high: low)
-        reminders.next_reminder_at = reminders.total_seconds + 30
-        dashboard = self.dashboard(self.store(), Mock())
-        controller = SimpleNamespace(dashboard=dashboard, support_reminders=reminders,
-                                     support_reminder_dialog=None)
-        with patch.object(dashboard, "isVisible", return_value=True), \
-             patch.object(dashboard, "isActiveWindow", return_value=True), \
-             patch.object(dashboard, "isMinimized", return_value=False), \
-             patch.object(self.ui.QApplication, "activeModalWidget", return_value=None):
-            now[0] += 30
-            self.ui.UIController._tick_support_reminder(controller, lambda: True)
-            self.assertIsNone(controller.support_reminder_dialog)
-            self.ui.UIController._tick_support_reminder(controller, lambda: False)
-            dialog = controller.support_reminder_dialog
-            self.addCleanup(dialog.deleteLater)
-            self.addCleanup(dialog.close)
-            self.assertFalse(dialog.isModal())
-            self.assertTrue(dialog.testAttribute(self.ui.Qt.WA_ShowWithoutActivating))
-            links = [label for label in dialog.findChildren(self.ui.QLabel) if SUPPORT_URL in label.text()]
-            self.assertEqual(len(links), 1)
-            self.assertTrue(links[0].openExternalLinks())
-            dismiss = next(button for button in dialog.findChildren(self.ui.QPushButton) if button.text() == "Dismiss")
-            dismiss.click()
-            self.assertFalse(dialog.isVisible())
-
-    def test_unfocused_dashboard_does_not_show_due_reminder(self):
-        dashboard = self.dashboard(self.store(), Mock())
-        reminders = Mock()
-        reminders.tick.return_value = None
-        controller = SimpleNamespace(dashboard=dashboard, support_reminders=reminders,
-                                     support_reminder_dialog=None)
-        with patch.object(dashboard, "isVisible", return_value=True), \
-             patch.object(dashboard, "isActiveWindow", return_value=False):
-            self.ui.UIController._tick_support_reminder(controller, lambda: False)
-        reminders.tick.assert_called_once_with(can_show=False)
 
     def test_reward_review_reject_leaves_persisted_queue_untouched(self):
         store = self.store()

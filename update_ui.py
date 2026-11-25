@@ -5,10 +5,7 @@ preferences and starts the separate updater without blocking the UI.
 """
 from datetime import date
 import json
-import os
-import re
 from pathlib import Path
-import shutil
 import subprocess
 import tempfile
 import threading
@@ -18,7 +15,12 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QApplication, QMessageBox, QProgressDialog
 
 import config
-from update_core import automatic_check_due, check_release, download_release
+from update_core import ASSET_NAME, automatic_check_due, check_release, download_release, installer_command
+
+
+def installed_by_setup() -> bool:
+    """True when this copy came from Parallel-Setup.exe, so the same installer can update it."""
+    return config.IS_FROZEN and (config.APP_DIR / 'unins000.exe').is_file()
 
 
 class UpdateController:
@@ -29,17 +31,7 @@ class UpdateController:
         self.progress = None
         self.cancelled = threading.Event()
         self.check_date_path = config.USER_DATA_DIR / 'update_check.json'
-        ui.app.sidro_updates = self
-        session = os.environ.pop('SIDRO_UPDATE_SESSION', '')
-        if re.fullmatch(r'update-[a-zA-Z0-9_-]{1,64}', session):
-            ready = config.USER_DATA_DIR / 'updates' / session / 'ready'
-            def signal_ready():
-                try:
-                    if ready.parent.is_dir():
-                        ready.write_text(config.APP_VERSION, encoding='utf-8')
-                except OSError:
-                    pass
-            QTimer.singleShot(1000, signal_ready)
+        ui.app.parallel_updates = self
         QTimer.singleShot(6000, self.check_automatically)
 
     def parent(self):
@@ -62,8 +54,6 @@ class UpdateController:
 
     def check(self, manual=True):
         if not getattr(config, 'UPDATE_SOURCE_ENABLED', False):
-            # This fork has no release feed of its own. Never offer the original
-            # project's releases as an update to it.
             if manual:
                 QMessageBox.information(self.parent(), f'{config.APP_NAME} updates', f'Update checks are turned off for this build ({config.APP_NAME} {config.APP_VERSION}).')
             return
@@ -99,12 +89,12 @@ class UpdateController:
         dialog = QMessageBox(self.parent())
         dialog.setWindowTitle('Parallel update available')
         dialog.setText(f"Parallel {release['version']} is available.\nInstalled: {config.APP_VERSION}")
-        available = config.IS_FROZEN and release['asset'] is not None and (config.APP_DIR / 'SidroUpdater.exe').is_file()
+        available = release['asset'] is not None and installed_by_setup()
         install = dialog.addButton('Update now', QMessageBox.AcceptRole) if available else None
         if available:
             dialog.setInformativeText('Download the update, then restart Parallel to install it. Your settings and saved sign-ins are preserved.')
         else:
-            dialog.setInformativeText('Open the release page for downloads. Automatic installation requires a packaged Windows build and a verified release ZIP.')
+            dialog.setInformativeText(f'Open the release page and download {ASSET_NAME}. Automatic installation only works for copies installed with it.')
         notes = dialog.addButton('Release notes', QMessageBox.ActionRole)
         later = dialog.addButton('Later', QMessageBox.RejectRole)
         dialog.setDefaultButton(later)
@@ -134,7 +124,7 @@ class UpdateController:
                 updates = config.USER_DATA_DIR / 'updates'
                 updates.mkdir(parents=True, exist_ok=True)
                 work = Path(tempfile.mkdtemp(prefix='update-', dir=updates))
-                download_release(release['asset'], work / 'release.zip',
+                download_release(release['asset'], work / ASSET_NAME,
                     progress=lambda percent: self.ui.invoke(lambda value=percent: self.progress.setValue(value)),
                     cancelled=self.cancelled.is_set)
                 if self.cancelled.is_set():
@@ -166,22 +156,14 @@ class UpdateController:
         if answer != QMessageBox.Yes:
             return
         try:
-            # Check parent-directory write access before closing the application.
-            with tempfile.TemporaryFile(dir=config.APP_DIR.parent):
-                pass
-            helper = work / 'SidroUpdater.exe'
-            shutil.copy2(config.APP_DIR / 'SidroUpdater.exe', helper)
-            job = {'target': str(config.APP_DIR.resolve()), 'pid': os.getpid(), 'sha256': release['asset']['sha256']}
-            job_path = work / 'job.json'
-            job_path.write_text(json.dumps(job), encoding='utf-8')
-            subprocess.Popen([str(helper), str(job_path)], cwd=work, creationflags=subprocess.CREATE_NO_WINDOW)
+            subprocess.Popen(installer_command(work / ASSET_NAME), cwd=work)
         except Exception as exc:
-            QMessageBox.warning(self.parent(), 'Parallel updates', f'Could not start the updater. Parallel will keep running.\n\n{exc}')
+            QMessageBox.warning(self.parent(), 'Parallel updates', f'Could not start the installer. Parallel will keep running.\n\n{exc}')
             return
         self.ui.stop()
 
 
 def check_for_updates():
-    controller = getattr(QApplication.instance(), 'sidro_updates', None)
+    controller = getattr(QApplication.instance(), 'parallel_updates', None)
     if controller is not None:
         controller.check(manual=True)

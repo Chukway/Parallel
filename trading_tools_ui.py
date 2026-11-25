@@ -879,11 +879,14 @@ class RewardHistoryTab(QWidget):
         )
         refresh = _button("Refresh", C_BG3, C_TEXT)
         refresh.clicked.connect(self.reload)
-        layout.addWidget(_bar(self.info, refresh, stretch_first=True))
-        self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["When", "Reward", "Price", "Ducats", "Result"])
+        self.failures_only = _StyledCheckBox("Failures only")
+        self.failures_only.setToolTip("Show only the screens where the pick could not be confirmed")
+        self.failures_only.toggled.connect(lambda _on: self.reload())
+        layout.addWidget(_bar(self.info, self.failures_only, refresh, stretch_first=True))
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels(["When", "Reward", "Own", "Price", "Ducats", "Result"])
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
-        _prepare_table(self.table, [150, 340, 80, 80, 150], stretch_column=1)
+        _prepare_table(self.table, [230, 330, 60, 80, 80, 150], stretch_column=1)
         layout.addWidget(self.table, 1)
         add = _button("Add to Item List", C_GREEN, "white")
         add.setToolTip("Adds one of the selected reward to your Item List (it does not touch warframe.market)")
@@ -894,8 +897,17 @@ class RewardHistoryTab(QWidget):
     def reload(self):
         self.history.load()
         self.table.setRowCount(0)
-        for screen in self.history.recent(30):
+        only_failures = self.failures_only.isChecked()
+        for screen in self.history.recent(30 if not only_failures else 100):
+            number = int(screen.get("failure_no") or 0)
+            if only_failures and not number:
+                continue
             when = datetime.fromtimestamp(float(screen.get("at") or 0)).strftime("%b %d  %H:%M")
+            fixed = bool(screen.get("added"))
+            if number:
+                label = f"Failure {number}" + (" (fixed)" if fixed else "")
+                when = f"{label}  {when}"
+            unresolved = bool(number) and not fixed
             for index, reward in enumerate(screen.get("rewards") or []):
                 row = self.table.rowCount()
                 self.table.insertRow(row)
@@ -904,19 +916,33 @@ class RewardHistoryTab(QWidget):
                     result = "Picked"
                 elif screen.get("added") == url:
                     result = "Added by you"
+                elif unresolved:
+                    result = "Which one?"
                 else:
                     result = ""
                 price, ducats = reward.get("price"), reward.get("ducats")
+                owned = self.store.items.get(url)
+                own = f"x{int(owned.quantity) if owned is not None else 0}" if url else ""
                 cells = [
-                    when if index == 0 else "", reward.get("display_name", ""),
+                    when if index == 0 else "", reward.get("display_name", ""), own,
                     "—" if price is None else f"{price}p", "—" if ducats is None else f"{ducats}d", result,
                 ]
                 for column, text in enumerate(cells):
-                    item = _table_item(text, mono=column in (2, 3))
+                    item = _table_item(text, mono=column in (2, 3, 4))
                     item.setData(Qt.UserRole, (screen.get("id"), url, reward.get("display_name", "")))
+                    if unresolved and column in (0, 5):
+                        item.setForeground(QColor(C_RED))
                     self.table.setItem(row, column, item)
         if not self.history.screens:
             self.info.setText("No reward screens recorded yet. They appear here after your next Void Fissure run.")
+        elif only_failures and not self.table.rowCount():
+            self.info.setText("No failed picks. Every pick Parallel saw was confirmed.")
+        else:
+            self.info.setText(
+                "Every reward screen Parallel read, newest first. A screen where it could not confirm your pick "
+                "is numbered Failure 1, 2, 3...; select the reward you took and press Add to Item List. "
+                "Own shows how many you already have."
+            )
 
     def add_selected(self):
         row = self.table.currentRow()

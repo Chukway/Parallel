@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-# Parallel build recipe (derived from the upstream Sidro recipe, MIT). RapidOCR models are taken from the installed rapidocr package.
+# Parallel build recipe. RapidOCR models are taken from the installed rapidocr package.
 
 from pathlib import Path
 import os
@@ -108,7 +108,7 @@ a = Analysis(
 a.binaries = [
     entry for entry in a.binaries
     if not (entry[0].lower() == "icuuc.dll" and "poppler" in str(entry[1]).lower())
-    # Sidro captures still frames; it never opens video files. Do not distribute
+    # Parallel captures still frames; it never opens video files. Do not distribute
     # OpenCV's optional FFmpeg plugin and its unrelated codec/source obligations.
     and not Path(entry[0]).name.lower().startswith("opencv_videoio_ffmpeg")
 ]

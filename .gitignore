@@ -78,17 +78,13 @@
 !/README.md
 !/SOURCE_GUIDE.md
 !/SOURCE_PUBLICATION.md
-!/Sidro.spec
 !/account_store.py
-!/account_ui.py
 !/alert_sound.py
 !/app_settings.example.json
 !/arcane_catalog.py
 !/arcane_scanner.py
 !/auth_manager.py
 !/backup_manager.py
-!/build_exe.bat
-!/build_exe.ps1
 !/build_parallel.ps1
 !/config.py
 !/docs/images/baro.png
@@ -103,7 +99,6 @@
 !/expected_inventory_6x3.example.json
 !/expected_inventory_bottom6.example.json
 !/inventory_scanner.py
-!/inventory_ui.py
 !/item_ids_cache.json
 !/items_cache.json
 !/main.py
@@ -112,7 +107,6 @@
 !/pillar1_capture.py
 !/pillar2_ocr.py
 !/pillar3_api.py
-!/pillar4_ui.py
 !/progress_overlay.py
 !/qt_ui.py
 !/release_materials/DEPENDENCY_BASELINE.md
@@ -235,7 +229,6 @@
 !/set_catalog.py
 !/settings_validation.py
 !/setup_environment.ps1
-!/support_reminders.py
 !/tests/README.md
 !/tests/test_arcane_catalog.py
 !/tests/test_arcane_scan.py
@@ -266,7 +259,6 @@
 !/tests/test_sell_selected.py
 !/tests/test_set_catalog.py
 !/tests/test_set_trades.py
-!/tests/test_support_reminders.py
 !/tests/test_token_capture.py
 !/tests/test_token_dialog_hook.py
 !/tests/test_trackers.py
@@ -288,17 +280,14 @@
 !/tools/check_ocr.py
 !/tools/check_startup.py
 !/tools/make_parallel_icon.py
-!/tools/make_release_zip.py
 !/tools/make_shortcut.ps1
 !/tools/make_windows_icon.py
 !/tools/parallel_version.txt
 !/tools/prepare_rapidocr_models.py
 !/tools/run_source.bat
 !/tools/run_source.ps1
-!/tools/sidro_version.txt
 !/tools/trace_ocr_helpers.py
 !/tools/update_publication_manifest.py
-!/tools/updater_version.txt
 !/tools/verify_public_source.py
 !/tools/write_ocr_requirements.py
 !/tracker_arbitration_schedule.txt
@@ -312,7 +301,6 @@
 !/tutorial.py
 !/update_core.py
 !/update_ui.py
-!/updater_helper.py
 
 # Private data and generated files remain excluded.
 /services/

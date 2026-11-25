@@ -43,18 +43,14 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertNotIn("PPOCRV4", rapid_code)
         for filename in ("PP-OCRv6_det_small.onnx", "PP-OCRv6_rec_small.onnx"):
             self.assertIn(filename, rapid_code)
-            self.assertIn(filename, (ROOT / "Sidro.spec").read_text(encoding="utf-8"))
         prep = (ROOT / "tools/prepare_rapidocr_models.py").read_text(encoding="utf-8")
         self.assertIn("OCRVersion.PPOCRV6", prep)
         self.assertIn("ModelType.SMALL", prep)
 
-    def test_builders_ship_all_repair_manifests(self):
-        builder = (ROOT / "build_exe.ps1").read_text(encoding="utf-8")
+    def test_builder_ships_all_repair_manifests(self):
+        builder = (ROOT / "build_parallel.ps1").read_text(encoding="utf-8")
         for manifest in ("requirements-rapidocr-test.txt", "requirements-paddleocr-test.txt", "requirements-windowsocr.txt"):
             self.assertIn(manifest, builder)
-        self.assertIn("build_exe.ps1", (ROOT / "build_exe.bat").read_text(encoding="utf-8"))
-        self.assertIn(".venv-sidro", builder)
-        self.assertIn("check_dependencies.py", builder)
         self.assertNotIn("pip install", builder)
 
     def test_runtime_backend_pins_match_release(self):
@@ -70,7 +66,7 @@ class ReleaseContractTests(unittest.TestCase):
                     self.assertEqual(base[canonicalize_name(requirement.name)], str(requirement.specifier))
 
     def test_bundle_keeps_metadata_needed_by_runtime_checks(self):
-        spec = (ROOT / "Sidro.spec").read_text(encoding="utf-8")
+        spec = (ROOT / "Parallel.spec").read_text(encoding="utf-8")
         self.assertIn("copy_metadata", spec)
         for package in ("rapidocr", "onnxruntime", "numpy", "opencv-contrib-python", "pyclipper", "shapely"):
             self.assertIn(f'"{package}"', spec)

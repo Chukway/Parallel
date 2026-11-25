@@ -62,7 +62,7 @@ def read_backup_info(archive_path: Path) -> dict:
             info = json.loads(archive.read(MANIFEST).decode("utf-8"))
         except (KeyError, ValueError):
             raise ValueError("This is not a Parallel backup.")
-    if not isinstance(info, dict) or info.get("app") not in {config.APP_NAME, "Parallel", "Sidro"}:
+    if not isinstance(info, dict) or info.get("app") not in {config.APP_NAME, "Parallel"}:
         raise ValueError("This is not a Parallel backup.")
     return info
 

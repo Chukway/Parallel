@@ -33,7 +33,7 @@ if __name__ == "__main__":
     pins = exact_pins(ROOT / "requirements-release.lock")
     versions, requires = installed_snapshot()
     if any(versions.get(name) != version for name, version in pins.items()):
-        raise SystemExit("Run this check from the shared .venv-sidro matching the lock.")
+        raise SystemExit("Run this check from the shared .venv-parallel matching the lock.")
     with ThreadPoolExecutor(max_workers=8) as pool:
         latest = dict(zip(sorted(pins), pool.map(latest_stable, sorted(pins))))
     requirements = active_requirements(requires, versions)

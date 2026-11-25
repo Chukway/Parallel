@@ -19,6 +19,7 @@ CORNERS = ("top_left", "top_right", "bottom_left", "bottom_right")
 # One entry per tracked task: pill title and the label of each dot, in order.
 OVERLAY_SPECS = {
     "fissure": ("FISSURE", ("Read", "Picked", "Confirmed", "Queued")),
+    "trade": ("TRADE", ("Open", "Item found", "Completed", "Logged")),
 }
 
 _DOT = 10
@@ -88,6 +89,8 @@ class StepOverlay(QWidget):
         self._wake()
 
     def reset(self) -> None:
+        if not self.note and all(state == PENDING for state in self.states):
+            return
         self.states = [PENDING] * len(self.steps)
         self.note = ""
         self._relayout()

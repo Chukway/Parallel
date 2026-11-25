@@ -27,7 +27,7 @@ class ReleaseMaterialsTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        self.build = self.root / "dist/Sidro"
+        self.build = self.root / "dist/Parallel"
         for relative in (*helper.REQUIRED_MATERIALS, *helper.PROJECT_FILES, *helper.MANIFESTS):
             original = helper.MATERIALS / relative if relative in helper.REQUIRED_MATERIALS else ROOT / relative
             destination = self.build / relative
@@ -37,7 +37,7 @@ class ReleaseMaterialsTests(unittest.TestCase):
             destination = self.build / item["file"]
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(helper.MATERIALS / item["file"], destination)
-        for relative in ("Sidro.exe", "SidroUpdater.exe", "_internal/PySide6/Qt6Core.dll",
+        for relative in ("Parallel.exe", "ParallelUpdater.exe", "_internal/PySide6/Qt6Core.dll",
                          "licenses/python/LICENSE.txt", "licenses/dependencies/requests/LICENSE"):
             destination = self.build / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -76,15 +76,15 @@ class ReleaseMaterialsTests(unittest.TestCase):
     def test_zip_includes_unchanged_project_license(self):
         with patch.dict(sys.modules, {"bundle_release_materials": helper}):
             package = runpy.run_path(str(ROOT / "tools/make_release_zip.py"))
-        destination = self.root / "dist/Sidro-windows-v1.0.zip"
+        destination = self.root / "dist/Parallel-windows-v1.0.zip"
         package["make_release_zip"](self.build, destination)
         with zipfile.ZipFile(destination) as archive:
-            self.assertEqual(archive.read("Sidro/LICENSE"), (ROOT / "LICENSE").read_bytes())
+            self.assertEqual(archive.read("Parallel/LICENSE"), (ROOT / "LICENSE").read_bytes())
 
     def test_missing_or_altered_project_license_blocks_zip_and_preserves_archive(self):
         with patch.dict(sys.modules, {"bundle_release_materials": helper}):
             package = runpy.run_path(str(ROOT / "tools/make_release_zip.py"))
-        destination = self.root / "dist/Sidro-windows-v1.0.zip"
+        destination = self.root / "dist/Parallel-windows-v1.0.zip"
         destination.write_bytes(b"Previous candidate")
         license_path = self.build / "LICENSE"
         license_path.unlink()
@@ -98,7 +98,7 @@ class ReleaseMaterialsTests(unittest.TestCase):
 
     def test_missing_notice_prevents_zip_and_preserves_existing_archive(self):
         (self.build / "THIRD_PARTY_NOTICES.md").unlink()
-        archive = self.root / "dist/Sidro-windows-v1.0.zip"
+        archive = self.root / "dist/Parallel-windows-v1.0.zip"
         archive.write_bytes(b"Existing archive must remain untouched")
         script = self.root / "tools/make_release_zip.py"
         script.parent.mkdir()
@@ -118,7 +118,7 @@ class ReleaseMaterialsTests(unittest.TestCase):
         script = self.root / "tools/make_release_zip.py"
         script.parent.mkdir()
         shutil.copy2(ROOT / "tools/make_release_zip.py", script)
-        archive = self.root / "dist/Sidro-windows-v1.0.zip"
+        archive = self.root / "dist/Parallel-windows-v1.0.zip"
         archive.write_bytes(b"Previous candidate")
         for relative in (".env", "_internal/entitlement_private_key.b64",
                          "_internal/.env.backup", "personal-backup.json",

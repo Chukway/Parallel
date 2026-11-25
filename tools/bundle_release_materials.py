@@ -120,7 +120,7 @@ def verify_release_materials(build: Path) -> None:
 
 
 def bundle_release_materials(build: Path) -> dict:
-    if not (build / "Sidro.exe").is_file() or not (build / "_internal").is_dir():
+    if not (build / "Parallel.exe").is_file() or not (build / "_internal").is_dir():
         raise RuntimeError("Bundle distribution material after building the portable application")
     manifest = json.loads((MATERIALS / "licenses/qt/manifest.json").read_text(encoding="utf-8"))
     from PySide6.QtCore import qVersion
@@ -225,7 +225,7 @@ def bundle_release_materials(build: Path) -> dict:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--destination", type=Path, default=ROOT / "dist/Sidro")
+    parser.add_argument("--destination", type=Path, default=ROOT / "dist/Parallel")
     args = parser.parse_args()
     inventory = bundle_release_materials(args.destination)
     print(f"Bundled release documents and license notices for {len(inventory['packages'])} pinned packages.")

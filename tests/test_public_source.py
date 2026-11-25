@@ -62,7 +62,7 @@ class PublicationTests(unittest.TestCase):
     def test_unknown_and_private_files_are_ignored_by_git(self):
         self.init_git()
         for name in ("new-source.py", "secret.txt", ".env.production", "services/src/index.js",
-                     "services/token.b64", "user_data/patreon_auth.bin", "dist/Sidro.exe",
+                     "services/token.b64", "user_data/patreon_auth.bin", "dist/Parallel.exe",
                      ".agents/private.md", "localpycs/main.pyc", "tests/fixtures/screenshot.png",
                      ".source-publication-audit/private.json", "release_materials/licenses/new-secret.txt"):
             with self.subTest(name=name):
@@ -77,7 +77,7 @@ class PublicationTests(unittest.TestCase):
             guard.verify_worktree(self.root, self.files)
 
     def test_secret_values_are_rejected_without_echoing_them(self):
-        samples = ["ghp_" + "A" * 36, "SIDRO-" + "-".join(["ABCD"] * 8),
+        samples = ["ghp_" + "A" * 36, "PARALLEL-" + "-".join(["ABCD"] * 8),
                    "C:" + "\\Users\\" + "PrivatePerson\\secret", "private-person" + "@" + "example.com",
                    "-----BEGIN " + "PRIVATE KEY-----", "eyJ" + "A" * 12 + "." + "B" * 12 + "." + "C" * 24]
         for value in samples:

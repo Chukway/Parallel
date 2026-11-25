@@ -2,7 +2,7 @@
 param([string]$PythonExecutable = "py")
 $ErrorActionPreference = "Stop"
 Set-Location -LiteralPath $PSScriptRoot
-$environmentPath = Join-Path $PSScriptRoot ".venv-sidro"
+$environmentPath = Join-Path $PSScriptRoot ".venv-parallel"
 $environmentPython = Join-Path $environmentPath "Scripts\python.exe"
 if (-not (Test-Path -LiteralPath $environmentPython)) {
     if ($PythonExecutable -eq "py") {
@@ -24,4 +24,4 @@ if ($LASTEXITCODE -ne 0) { throw "Installing the pinned packaging tools failed."
 if ($LASTEXITCODE -ne 0) { throw "Installing the locked dependencies failed." }
 & $environmentPython -B tools\check_dependencies.py
 if ($LASTEXITCODE -ne 0) { throw "Environment verification failed; see the baseline document." }
-Write-Host "Source launchers and release builders now share .venv-sidro."
+Write-Host "Source launchers and release builders now share .venv-parallel."

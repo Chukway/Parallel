@@ -93,7 +93,6 @@ from pillar3_api import ranked_key
 from set_catalog import MasteryList, SetCatalog, SetStatus, fetch_set, known_set_names
 from alert_sound import generated_styles, play_alert
 from inventory_scanner import InventoryItem
-from support_reminders import SUPPORT_URL, SupportReminders
 from settings_validation import MAX_SETTINGS_BYTES, sanitize_settings
 from progress_overlay import OVERLAY_SPECS, StepOverlay, clean_corner
 
@@ -356,16 +355,16 @@ def _load_color_settings():
 _load_color_settings()
 
 
-SIDRO_VISUALS = {
+PARALLEL_VISUALS = {
     # Both options use Parallel's own mark; the original character artwork is no longer shipped.
     "robot": ("Parallel mark", "Parallel.png"),
     "maid": ("Parallel mark", "Parallel.png"),
 }
 
 
-def _sidro_visual_asset() -> str:
-    key = str(getattr(config, "SIDRO_VISUAL_CHARACTER", "robot")).strip().lower()
-    return SIDRO_VISUALS.get(key, SIDRO_VISUALS["robot"])[1]
+def _parallel_visual_asset() -> str:
+    key = str(getattr(config, "PARALLEL_VISUAL_CHARACTER", "robot")).strip().lower()
+    return PARALLEL_VISUALS.get(key, PARALLEL_VISUALS["robot"])[1]
 
 
 def _app_icon() -> QIcon:
@@ -409,6 +408,20 @@ class LogStream(QObject):
         super().__init__()
         self.target = target
         self.buffer = deque(maxlen=max_chunks)
+        self.file = None
+
+    def open_file(self, path, max_bytes: int = 3_000_000):
+        """Also keep the log on disk (one earlier session is kept beside it)."""
+        try:
+            path = Path(path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if path.exists() and path.stat().st_size > max_bytes:
+                path.replace(path.with_name(path.stem + ".previous" + path.suffix))
+            self.file = open(path, "a", encoding="utf-8", errors="replace", buffering=1)
+            stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            self.file.write(f"\n===== Parallel {config.APP_VERSION} started {stamp} =====\n")
+        except Exception:
+            self.file = None
 
     def write(self, text: str):
         if self.target is not None:
@@ -416,6 +429,11 @@ class LogStream(QObject):
                 self.target.write(text)
             except Exception:
                 pass
+        if self.file is not None and text:
+            try:
+                self.file.write(text)
+            except Exception:
+                self.file = None
         if not text:
             return
         self.buffer.append(text)
@@ -445,6 +463,8 @@ def _install_log_capture() -> LogStream:
         return _LOG_STREAM
     if _LOG_STREAM is None:
         _LOG_STREAM = LogStream(sys.stdout)
+        if os.environ.get("PARALLEL_NO_LOG_FILE") != "1" and "unittest.main" not in sys.modules:
+            _LOG_STREAM.open_file(config.USER_DATA_DIR / "parallel.log")
     sys.stdout = _LOG_STREAM
     sys.stderr = _LOG_STREAM
     return _LOG_STREAM
@@ -464,34 +484,34 @@ def _button(text: str, color: str | None = None, text_color: str | None = None) 
     if text.startswith("Review rewards ("):
         icon_name = "gift"
     if icon_name:
-        button.setProperty("sidro_icon", icon_name)
+        button.setProperty("parallel_icon", icon_name)
         button.setIconSize(QSize(16, 16))
         if text == "💬":
             button.setText("")
             button.setAccessibleName("Show active buyers")
-    button.setProperty("sidro_theme_background_role", _theme_role_for_color(color))
-    button.setProperty("sidro_theme_text_role", _theme_role_for_color(text_color))
-    button.setProperty("sidro_theme_background_fallback", str(color))
-    button.setProperty("sidro_theme_text_fallback", str(text_color))
-    button.setProperty("sidro_theme_managed", True)
+    button.setProperty("parallel_theme_background_role", _theme_role_for_color(color))
+    button.setProperty("parallel_theme_text_role", _theme_role_for_color(text_color))
+    button.setProperty("parallel_theme_background_fallback", str(color))
+    button.setProperty("parallel_theme_text_fallback", str(text_color))
+    button.setProperty("parallel_theme_managed", True)
     _THEMED_BUTTONS.add(button)
     _refresh_themed_button(button)
     return button
 
 
 def _refresh_themed_button(button: QPushButton):
-    if not button.property("sidro_theme_managed"):
+    if not button.property("parallel_theme_managed"):
         return
     palette = _active_theme_palette()
-    background_role = button.property("sidro_theme_background_role")
-    text_role = button.property("sidro_theme_text_role")
-    background = palette.get(background_role, button.property("sidro_theme_background_fallback"))
-    foreground = palette.get(text_role, button.property("sidro_theme_text_fallback"))
+    background_role = button.property("parallel_theme_background_role")
+    text_role = button.property("parallel_theme_text_role")
+    background = palette.get(background_role, button.property("parallel_theme_background_fallback"))
+    foreground = palette.get(text_role, button.property("parallel_theme_text_fallback"))
     top = QColor(background).lighter(110).name()
     border = C_BG3 if background_role in {"Background", "Panel", "Control", "Header"} else QColor(background).lighter(120).name()
     hover = QColor(background).lighter(128).name()
-    padding = "0" if button.property("sidro_stepper") else "8px 10px"
-    icon_name = button.property("sidro_icon")
+    padding = "0" if button.property("parallel_stepper") else "8px 10px"
+    icon_name = button.property("parallel_icon")
     if icon_name:
         icon = QIcon(_ui_icon(icon_name, foreground))
         # A disabled button swaps to the muted palette, so its icon must follow.
@@ -545,12 +565,12 @@ def _save_ui_settings():
         "step_overlay_hide_seconds": int(getattr(config, "STEP_OVERLAY_HIDE_SECONDS", 0)),
         "reward_owned_style": str(getattr(config, "REWARD_OWNED_STYLE", "cards")),
         "reward_rank_by": str(getattr(config, "REWARD_RANK_BY", "plat")),
-        "sidro_notification_mascot": bool(getattr(config, "SIDRO_NOTIFICATION_MASCOT", False)),
-        "sidro_visual_character": str(getattr(config, "SIDRO_VISUAL_CHARACTER", "robot")),
-        "sidro_welcome_visual_frequency": str(getattr(config, "SIDRO_WELCOME_VISUAL_FREQUENCY", "once_a_day")),
-        "sidro_welcome_audio_enabled": bool(getattr(config, "SIDRO_WELCOME_AUDIO_ENABLED", True)),
+        "parallel_notification_mascot": bool(getattr(config, "PARALLEL_NOTIFICATION_MASCOT", False)),
+        "parallel_visual_character": str(getattr(config, "PARALLEL_VISUAL_CHARACTER", "robot")),
+        "parallel_welcome_visual_frequency": str(getattr(config, "PARALLEL_WELCOME_VISUAL_FREQUENCY", "once_a_day")),
+        "parallel_welcome_audio_enabled": bool(getattr(config, "PARALLEL_WELCOME_AUDIO_ENABLED", True)),
         "update_check_frequency": getattr(config, "UPDATE_CHECK_FREQUENCY", "daily"),
-        "sidro_welcome_visual_last_shown": str(getattr(config, "SIDRO_WELCOME_VISUAL_LAST_SHOWN", "")),
+        "parallel_welcome_visual_last_shown": str(getattr(config, "PARALLEL_WELCOME_VISUAL_LAST_SHOWN", "")),
         "ui_font_family": str(getattr(config, "UI_FONT_FAMILY", "Segoe UI")),
         "ui_font_size": int(getattr(config, "UI_FONT_SIZE", 12)),
         "ui_table_text_alignment": str(getattr(config, "UI_TABLE_TEXT_ALIGNMENT", "left")),
@@ -688,7 +708,7 @@ class NumberEditor(QWidget):
         self.minus.setFixedWidth(24)
         self.plus.setFixedWidth(24)
         for button in (self.minus, self.plus):
-            button.setProperty("sidro_stepper", True)
+            button.setProperty("parallel_stepper", True)
             button.setMinimumHeight(max(30, int(getattr(config, "UI_FONT_SIZE", 12)) + 14))
             _refresh_themed_button(button)
         self.edit.setMinimumWidth(32)
@@ -750,7 +770,7 @@ class NavTabs(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("NavRail")
-        self.setProperty("sidro_nav_rail", True)
+        self.setProperty("parallel_nav_rail", True)
         self.setFixedWidth(208)
         self.stack = QStackedWidget()
         self._buttons: list[QPushButton] = []
@@ -887,14 +907,14 @@ def _apply_app_style(app: QApplication):
         QLabel#BrandTitle {{ color: {C_GOLD}; font-size: {font_size + 8}px; font-weight: 700; }}
         QLabel#BrandSubtitle {{ color: {C_MUTED}; font-size: {max(font_size - 2, 9)}px; }}
         QLabel#SelectionFeedback {{ color: {C_GOLD}; font-size: {font_size + 2}px; font-weight: 600; }}
-        QPushButton[sidro_caption="true"] {{
+        QPushButton[parallel_caption="true"] {{
             background: transparent; border: 0; border-radius: 3px; padding: 0;
         }}
-        QPushButton[sidro_caption="true"]:hover,
-        QPushButton[sidro_caption_hover="true"] {{ background: {C_BG3}; }}
-        QPushButton[sidro_caption="true"]:pressed {{ background: {border}; }}
+        QPushButton[parallel_caption="true"]:hover,
+        QPushButton[parallel_caption_hover="true"] {{ background: {C_BG3}; }}
+        QPushButton[parallel_caption="true"]:pressed {{ background: {border}; }}
         QPushButton#CaptionClose:hover, QPushButton#CaptionClose:pressed {{ background: {C_RED}; }}
-        QPushButton[sidro_caption="true"]:focus {{ border: 1px solid {C_GOLD}; }}
+        QPushButton[parallel_caption="true"]:focus {{ border: 1px solid {C_GOLD}; }}
         QTableWidget {{
             background: {C_BG};
             alternate-background-color: {C_BG2};
@@ -1011,12 +1031,12 @@ def _apply_app_style(app: QApplication):
     )
     _refresh_themed_buttons()
     for widget in app.allWidgets():
-        if isinstance(widget, QLabel) and widget.property("sidro_icon"):
-            widget.setPixmap(_ui_icon(widget.property("sidro_icon"), C_GOLD).pixmap(widget.size()))
+        if isinstance(widget, QLabel) and widget.property("parallel_icon"):
+            widget.setPixmap(_ui_icon(widget.property("parallel_icon"), C_GOLD).pixmap(widget.size()))
         if isinstance(widget, NavTabs):
             widget.refresh_icons()
-        if isinstance(widget, QPushButton) and widget.property("sidro_caption_icon"):
-            widget.setIcon(_ui_icon(widget.property("sidro_caption_icon"), C_TEXT))
+        if isinstance(widget, QPushButton) and widget.property("parallel_caption_icon"):
+            widget.setIcon(_ui_icon(widget.property("parallel_caption_icon"), C_TEXT))
 
 
 class Toast(QFrame):
@@ -1053,12 +1073,12 @@ class Toast(QFrame):
         )
 
         screen = QApplication.primaryScreen().availableGeometry()
-        mascot_enabled = bool(getattr(config, "SIDRO_NOTIFICATION_MASCOT", False))
+        mascot_enabled = bool(getattr(config, "PARALLEL_NOTIFICATION_MASCOT", False))
         mascot_label: QLabel | None = None
         mascot_width = 0
         mascot_height = 0
         if mascot_enabled:
-            pixmap = QPixmap(str(config.resource_path(_sidro_visual_asset())))
+            pixmap = QPixmap(str(config.resource_path(_parallel_visual_asset())))
             if not pixmap.isNull():
                 mascot_height = int(max(128, min(screen.height() * 0.2, 260)))
                 mascot_width = int(mascot_height * 0.78)
@@ -2407,25 +2427,6 @@ class TokenDialog(QDialog):
         )
 
 
-class SupportReminderDialog(QDialog):
-    def __init__(self, message: str, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Support Parallel")
-        self.setModal(False)
-        self.setAttribute(Qt.WA_ShowWithoutActivating)
-        self.setMinimumWidth(420)
-        layout = QVBoxLayout(self)
-        text = QLabel(message)
-        text.setWordWrap(True)
-        layout.addWidget(text)
-        link = QLabel(f'<a href="{SUPPORT_URL}" style="color: {C_BLUE};">{SUPPORT_URL}</a>')
-        link.setOpenExternalLinks(True)
-        layout.addWidget(link)
-        dismiss = _button("Dismiss", C_BG3, C_TEXT)
-        dismiss.clicked.connect(self.accept)
-        layout.addWidget(dismiss, 0, Qt.AlignRight)
-
-
 class SettingsDialog(QDialog):
     ocr_pack_install_finished = Signal(str, str, bool)
     item_list_refreshed = Signal(str)
@@ -2893,30 +2894,30 @@ class SettingsDialog(QDialog):
         assistant_note.setWordWrap(True)
         assistant_layout.addWidget(assistant_note)
         self.mascot_check = _StyledCheckBox("Show Parallel assistant pictures")
-        self.mascot_check.setChecked(bool(self._pending.get("sidro_notification_mascot", False)))
+        self.mascot_check.setChecked(bool(self._pending.get("parallel_notification_mascot", False)))
         self.mascot_check.toggled.connect(self._set_notification_mascot)
         assistant_layout.addWidget(self.mascot_check)
         visual_grid = QGridLayout()
         visual_grid.setColumnStretch(1, 1)
         visual_grid.addWidget(QLabel("Character:"), 0, 0)
-        self.sidro_visual_combo = QComboBox()
-        for visual_key, (label, _filename) in SIDRO_VISUALS.items():
-            self.sidro_visual_combo.addItem(label, visual_key)
+        self.parallel_visual_combo = QComboBox()
+        for visual_key, (label, _filename) in PARALLEL_VISUALS.items():
+            self.parallel_visual_combo.addItem(label, visual_key)
         self._set_combo_data(
-            self.sidro_visual_combo,
-            str(self._pending.get("sidro_visual_character", "robot")),
+            self.parallel_visual_combo,
+            str(self._pending.get("parallel_visual_character", "robot")),
         )
-        self.sidro_visual_combo.currentIndexChanged.connect(
-            lambda _index: self._set_sidro_visual_character(self.sidro_visual_combo.currentData())
+        self.parallel_visual_combo.currentIndexChanged.connect(
+            lambda _index: self._set_parallel_visual_character(self.parallel_visual_combo.currentData())
         )
-        visual_grid.addWidget(self.sidro_visual_combo, 0, 1)
+        visual_grid.addWidget(self.parallel_visual_combo, 0, 1)
         assistant_layout.addLayout(visual_grid)
-        self.sidro_visual_preview = QLabel()
-        self.sidro_visual_preview.setAlignment(Qt.AlignCenter)
-        self.sidro_visual_preview.setMinimumHeight(220)
-        self.sidro_visual_preview.setObjectName("Panel")
-        assistant_layout.addWidget(self.sidro_visual_preview)
-        self._update_sidro_visual_preview()
+        self.parallel_visual_preview = QLabel()
+        self.parallel_visual_preview.setAlignment(Qt.AlignCenter)
+        self.parallel_visual_preview.setMinimumHeight(220)
+        self.parallel_visual_preview.setObjectName("Panel")
+        assistant_layout.addWidget(self.parallel_visual_preview)
+        self._update_parallel_visual_preview()
         assistant_layout.addStretch()
 
         ducat_layout = make_tab("Ducat saver")
@@ -3084,10 +3085,10 @@ class SettingsDialog(QDialog):
             "step_overlay_hide_seconds": int(getattr(config, "STEP_OVERLAY_HIDE_SECONDS", 0)),
             "reward_owned_style": str(getattr(config, "REWARD_OWNED_STYLE", "cards")),
         "reward_rank_by": str(getattr(config, "REWARD_RANK_BY", "plat")),
-            "sidro_notification_mascot": bool(getattr(config, "SIDRO_NOTIFICATION_MASCOT", False)),
-            "sidro_visual_character": str(getattr(config, "SIDRO_VISUAL_CHARACTER", "robot")),
-            "sidro_welcome_visual_frequency": str(getattr(config, "SIDRO_WELCOME_VISUAL_FREQUENCY", "once_a_day")),
-            "sidro_welcome_audio_enabled": bool(getattr(config, "SIDRO_WELCOME_AUDIO_ENABLED", True)),
+            "parallel_notification_mascot": bool(getattr(config, "PARALLEL_NOTIFICATION_MASCOT", False)),
+            "parallel_visual_character": str(getattr(config, "PARALLEL_VISUAL_CHARACTER", "robot")),
+            "parallel_welcome_visual_frequency": str(getattr(config, "PARALLEL_WELCOME_VISUAL_FREQUENCY", "once_a_day")),
+            "parallel_welcome_audio_enabled": bool(getattr(config, "PARALLEL_WELCOME_AUDIO_ENABLED", True)),
             "update_check_frequency": getattr(config, "UPDATE_CHECK_FREQUENCY", "daily"),
             "ui_font_family": str(getattr(config, "UI_FONT_FAMILY", "Segoe UI")),
             "ui_font_size": int(getattr(config, "UI_FONT_SIZE", 12)),
@@ -3140,8 +3141,8 @@ class SettingsDialog(QDialog):
         self._pending["step_overlay_hide_seconds"] = self.overlay_hide_spin.value()
         self._pending["reward_owned_style"] = str(self.reward_owned_combo.currentData() or "cards")
         self._pending["reward_rank_by"] = str(self.reward_rank_combo.currentData() or "plat")
-        self._pending["sidro_notification_mascot"] = self.mascot_check.isChecked()
-        self._pending["sidro_visual_character"] = str(self.sidro_visual_combo.currentData() or "robot")
+        self._pending["parallel_notification_mascot"] = self.mascot_check.isChecked()
+        self._pending["parallel_visual_character"] = str(self.parallel_visual_combo.currentData() or "robot")
         self._pending["update_check_frequency"] = self.update_frequency_combo.currentData()
         self._pending["ducat_filter_enabled"] = self.ducat_check.isChecked()
         self._pending["ducat_bulk_plat_values"] = {
@@ -3196,18 +3197,18 @@ class SettingsDialog(QDialog):
         style = str(self._pending.get("reward_owned_style"))
         config.REWARD_OWNED_STYLE = style if style in ("cards", "panel", "inline", "list") else "cards"
         config.REWARD_RANK_BY = "ducats" if str(self._pending.get("reward_rank_by")) == "ducats" else "plat"
-        config.SIDRO_NOTIFICATION_MASCOT = bool(self._pending["sidro_notification_mascot"])
-        config.SIDRO_VISUAL_CHARACTER = str(self._pending["sidro_visual_character"]).strip().lower()
-        if config.SIDRO_VISUAL_CHARACTER not in SIDRO_VISUALS:
-            config.SIDRO_VISUAL_CHARACTER = "robot"
-        config.SIDRO_WELCOME_VISUAL_FREQUENCY = str(
-            self._pending.get("sidro_welcome_visual_frequency", "once_a_day")
+        config.PARALLEL_NOTIFICATION_MASCOT = bool(self._pending["parallel_notification_mascot"])
+        config.PARALLEL_VISUAL_CHARACTER = str(self._pending["parallel_visual_character"]).strip().lower()
+        if config.PARALLEL_VISUAL_CHARACTER not in PARALLEL_VISUALS:
+            config.PARALLEL_VISUAL_CHARACTER = "robot"
+        config.PARALLEL_WELCOME_VISUAL_FREQUENCY = str(
+            self._pending.get("parallel_welcome_visual_frequency", "once_a_day")
         ).strip().lower()
-        if config.SIDRO_WELCOME_VISUAL_FREQUENCY not in ("once_a_day", "every_launch", "never"):
-            config.SIDRO_WELCOME_VISUAL_FREQUENCY = "once_a_day"
+        if config.PARALLEL_WELCOME_VISUAL_FREQUENCY not in ("once_a_day", "every_launch", "never"):
+            config.PARALLEL_WELCOME_VISUAL_FREQUENCY = "once_a_day"
         config.UPDATE_CHECK_FREQUENCY = self._pending.get("update_check_frequency", "daily")
-        config.SIDRO_WELCOME_AUDIO_ENABLED = bool(
-            self._pending.get("sidro_welcome_audio_enabled", True)
+        config.PARALLEL_WELCOME_AUDIO_ENABLED = bool(
+            self._pending.get("parallel_welcome_audio_enabled", True)
         )
         config.WFM_INGAME_NAME = str(self._pending["wfm_ingame_name"]).strip()
         config.TRADE_MY_NAME = config.WFM_INGAME_NAME
@@ -3329,7 +3330,7 @@ class SettingsDialog(QDialog):
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Export Parallel backup",
-            "sidro-settings-backup.json",
+            "parallel-settings-backup.json",
             "JSON files (*.json)",
         )
         if not path:
@@ -3421,16 +3422,16 @@ class SettingsDialog(QDialog):
         }
         for _label, context in self.OCR_FIELDS:
             self._pending["ocr_engines"].setdefault(context, config.OCR_ENGINE_BY_CONTEXT.get(context, "rapidocr"))
-        visual = str(self._pending.get("sidro_visual_character", "robot")).strip().lower()
-        self._pending["sidro_visual_character"] = visual if visual in SIDRO_VISUALS else "robot"
+        visual = str(self._pending.get("parallel_visual_character", "robot")).strip().lower()
+        self._pending["parallel_visual_character"] = visual if visual in PARALLEL_VISUALS else "robot"
         welcome_frequency = str(
-            self._pending.get("sidro_welcome_visual_frequency", "once_a_day")
+            self._pending.get("parallel_welcome_visual_frequency", "once_a_day")
         ).strip().lower()
-        self._pending["sidro_welcome_visual_frequency"] = (
+        self._pending["parallel_welcome_visual_frequency"] = (
             welcome_frequency if welcome_frequency in ("once_a_day", "every_launch", "never") else "once_a_day"
         )
-        self._pending["sidro_welcome_audio_enabled"] = bool(
-            self._pending.get("sidro_welcome_audio_enabled", True)
+        self._pending["parallel_welcome_audio_enabled"] = bool(
+            self._pending.get("parallel_welcome_audio_enabled", True)
         )
         ducats = self._pending.get("ducat_bulk_plat_values", {})
         self._pending["ducat_bulk_plat_values"] = {
@@ -3487,9 +3488,9 @@ class SettingsDialog(QDialog):
         self.overlay_hide_spin.setValue(int(self._pending.get("step_overlay_hide_seconds", 0)))
         self._set_combo_data(self.reward_owned_combo, str(self._pending.get("reward_owned_style", "cards")))
         self._set_combo_data(self.reward_rank_combo, str(self._pending.get("reward_rank_by", "plat")))
-        self.mascot_check.setChecked(bool(self._pending.get("sidro_notification_mascot", False)))
-        self._set_combo_data(self.sidro_visual_combo, str(self._pending.get("sidro_visual_character", "robot")))
-        self._update_sidro_visual_preview()
+        self.mascot_check.setChecked(bool(self._pending.get("parallel_notification_mascot", False)))
+        self._set_combo_data(self.parallel_visual_combo, str(self._pending.get("parallel_visual_character", "robot")))
+        self._update_parallel_visual_preview()
         selected_backend = self._ocr_selection_for_contexts(self._pending["ocr_engines"])
         self.ocr_backend.blockSignals(True)
         self._set_combo_data(self.ocr_backend, selected_backend)
@@ -3757,27 +3758,27 @@ class SettingsDialog(QDialog):
         self._pending["notification_corner"] = value
 
     def _set_notification_mascot(self, value: bool):
-        self._pending["sidro_notification_mascot"] = bool(value)
+        self._pending["parallel_notification_mascot"] = bool(value)
 
-    def _set_sidro_visual_character(self, value: str):
+    def _set_parallel_visual_character(self, value: str):
         selected = str(value or "robot").strip().lower()
-        if selected not in SIDRO_VISUALS:
+        if selected not in PARALLEL_VISUALS:
             selected = "robot"
-        self._pending["sidro_visual_character"] = selected
-        self._update_sidro_visual_preview()
+        self._pending["parallel_visual_character"] = selected
+        self._update_parallel_visual_preview()
 
-    def _update_sidro_visual_preview(self):
-        if not hasattr(self, "sidro_visual_preview"):
+    def _update_parallel_visual_preview(self):
+        if not hasattr(self, "parallel_visual_preview"):
             return
-        selected = str(self._pending.get("sidro_visual_character", "robot")).strip().lower()
-        label, filename = SIDRO_VISUALS.get(selected, SIDRO_VISUALS["robot"])
+        selected = str(self._pending.get("parallel_visual_character", "robot")).strip().lower()
+        label, filename = PARALLEL_VISUALS.get(selected, PARALLEL_VISUALS["robot"])
         pixmap = QPixmap(str(config.resource_path(filename)))
         if pixmap.isNull():
-            self.sidro_visual_preview.setPixmap(QPixmap())
-            self.sidro_visual_preview.setText(f"{label}\n{filename} not found.")
+            self.parallel_visual_preview.setPixmap(QPixmap())
+            self.parallel_visual_preview.setText(f"{label}\n{filename} not found.")
             return
-        self.sidro_visual_preview.setText("")
-        self.sidro_visual_preview.setPixmap(
+        self.parallel_visual_preview.setText("")
+        self.parallel_visual_preview.setPixmap(
             pixmap.scaled(
                 180,
                 210,
@@ -3816,7 +3817,7 @@ class SettingsDialog(QDialog):
         button = self.color_buttons.get(option_label)
         if button is None:
             return
-        button.setProperty("sidro_theme_managed", False)
+        button.setProperty("parallel_theme_managed", False)
         button.setText(f"{hex_color}  ·  Change")
         button.setStyleSheet(
             f"QPushButton {{ background: {hex_color}; color: {text_color}; "
@@ -4037,8 +4038,8 @@ class _WindowsDashboardFrame:
     def hover(self, current=None):
         for _, button in self.caption_buttons():
             active = button is current
-            if bool(button.property("sidro_caption_hover")) != active:
-                button.setProperty("sidro_caption_hover", active)
+            if bool(button.property("parallel_caption_hover")) != active:
+                button.setProperty("parallel_caption_hover", active)
                 button.style().unpolish(button)
                 button.style().polish(button)
                 button.update()
@@ -5723,7 +5724,7 @@ class Dashboard(QMainWindow):
         header.setSpacing(16)
         brand = QLabel()
         brand.setObjectName("BrandMark")
-        brand.setProperty("sidro_icon", "brand")
+        brand.setProperty("parallel_icon", "brand")
         brand.setFixedSize(44, 50)
         brand.setPixmap(_ui_icon("brand", C_GOLD).pixmap(44, 50))
         brand_text = QVBoxLayout()
@@ -5756,8 +5757,8 @@ class Dashboard(QMainWindow):
         for name, callback in (("minimize", self._minimize_window),
                                ("maximize", self._toggle_maximized), ("close", self.close)):
             button = QPushButton()
-            button.setProperty("sidro_caption", True)
-            button.setProperty("sidro_caption_icon", name)
+            button.setProperty("parallel_caption", True)
+            button.setProperty("parallel_caption_icon", name)
             button.setObjectName("CaptionClose" if name == "close" else "CaptionButton")
             button.setFixedSize(44, 32)
             button.setIcon(_ui_icon(name, C_TEXT))
@@ -6063,7 +6064,7 @@ class Dashboard(QMainWindow):
         if event.type() == QEvent.WindowStateChange and hasattr(self, "window_maximize_button"):
             name = "restore" if self.isMaximized() else "maximize"
             button = self.window_maximize_button
-            button.setProperty("sidro_caption_icon", name)
+            button.setProperty("parallel_caption_icon", name)
             button.setIcon(_ui_icon(name, C_TEXT))
             button.setAccessibleName(name.capitalize())
             button.setToolTip(name.capitalize())
@@ -6113,10 +6114,10 @@ class Dashboard(QMainWindow):
         role = "Danger" if loaded else "Accent"
         fallback = C_RED if loaded else C_GOLD
         button.setText("Unload OCRs" if loaded else "Load OCRs")
-        button.setProperty("sidro_theme_background_role", role)
-        button.setProperty("sidro_theme_background_fallback", fallback)
-        button.setProperty("sidro_theme_text_role", "Text" if loaded else "Header")
-        button.setProperty("sidro_theme_text_fallback", C_TEXT if loaded else C_HEADER)
+        button.setProperty("parallel_theme_background_role", role)
+        button.setProperty("parallel_theme_background_fallback", fallback)
+        button.setProperty("parallel_theme_text_role", "Text" if loaded else "Header")
+        button.setProperty("parallel_theme_text_fallback", C_TEXT if loaded else C_HEADER)
         _refresh_themed_button(button)
         if status is not None and hasattr(self, "ocr_warmup_status"):
             self.ocr_warmup_status.setText(status)
@@ -6853,40 +6854,6 @@ class UIController:
         global _overlay_refresh_hook
         _overlay_refresh_hook = self.overlay_refresh_options
         self.saved_ducat_dialogs: list[SavedDucatDialog] = []
-        self.support_reminders: SupportReminders | None = None
-        self.support_reminder_timer: QTimer | None = None
-        self.support_reminder_dialog: SupportReminderDialog | None = None
-
-    def start_support_reminders(self, is_busy: Callable[[], bool]):
-        # The original project's reminder asks for donations to its author, so it
-        # stays off in this fork. Remove this line only if you add your own link.
-        return
-
-        def start():
-            if self.support_reminder_timer is not None:
-                return
-            self.support_reminders = SupportReminders(config.USER_DATA_DIR / "support_reminder.json")
-            self.support_reminder_timer = QTimer(self.invoker)
-            self.support_reminder_timer.setInterval(30_000)
-            self.support_reminder_timer.timeout.connect(lambda: self._tick_support_reminder(is_busy))
-            self.support_reminder_timer.start()
-        self.invoke(start)
-
-    def _tick_support_reminder(self, is_busy: Callable[[], bool]):
-        dashboard = self.dashboard
-        can_show = bool(
-            dashboard is not None and dashboard.isVisible() and dashboard.isActiveWindow()
-            and not dashboard.isMinimized() and QApplication.activeModalWidget() is None
-            and not getattr(dashboard, "_background_busy", False) and not is_busy()
-            and (self.support_reminder_dialog is None or not self.support_reminder_dialog.isVisible())
-        )
-        message = self.support_reminders.tick(can_show=can_show)
-        if message is not None:
-            if self.support_reminder_dialog is not None:
-                self.support_reminder_dialog.deleteLater()
-            self.support_reminder_dialog = SupportReminderDialog(message, dashboard)
-            self.support_reminder_dialog.show()
-
     def invoke(self, fn: Callable[[], object], wait: bool = False):
         if wait and QThread.currentThread() == self.app.thread():
             return fn()
@@ -7248,11 +7215,6 @@ class UIController:
 
     def stop(self):
         def stop():
-            if self.support_reminder_timer is not None:
-                self.support_reminder_timer.stop()
-                self.support_reminders.tick(can_show=False)
-            if self.support_reminder_dialog is not None:
-                self.support_reminder_dialog.close()
             self.app.quit()
         if QThread.currentThread() == self.app.thread():
             stop()

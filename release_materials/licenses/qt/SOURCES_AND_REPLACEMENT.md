@@ -3,7 +3,7 @@
 ## Corresponding upstream sources
 
 The current distribution uses Qt, PySide6 and Shiboken6 **6.11.2**.
-Sidro's build scripts do not patch these libraries; they package the installed
+Parallel's build scripts do not patch these libraries; they package the installed
 upstream binaries. Application UI changes are separate from library changes.
 
 Source archives for the reviewed library modules:
@@ -38,7 +38,7 @@ The Windows application uses dynamically loaded Qt/PySide/Shiboken libraries
 inside the portable package. Their licenses permit compatible modified
 libraries and the reverse engineering needed to debug those modifications.
 
-1. Close Sidro and its updater. Make a separate copy of the extracted package.
+1. Close Parallel and its updater. Make a separate copy of the extracted package.
 2. Obtain the exact matching sources above. Follow upstream build guidance
    using an x64 Windows toolchain, Python 3.12-compatible bindings and a
    mutually compatible Qt/PySide/Shiboken ABI. Retain the relevant Qt modules
@@ -46,7 +46,7 @@ libraries and the reverse engineering needed to debug those modifications.
 3. Replace the corresponding files in the copy. Qt DLLs and plugins are in
    `_internal/PySide6`; bindings are in that same directory, and Shiboken files
    are in `_internal/shiboken6`. Preserve directory layout and dependent DLLs.
-4. Launch the copied `Sidro.exe` and test the modified libraries. Sidro does
+4. Launch the copied `Parallel.exe` and test the modified libraries. Parallel does
    not implement a startup signature/hash check of these library files.
 
 The automatic updater installs the official package and may replace modified

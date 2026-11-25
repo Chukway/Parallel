@@ -106,6 +106,28 @@ class OverlayStateTests(unittest.TestCase):
         self.assertGreater(self.pill(show_labels=True).width(), self.pill(show_labels=False).width())
 
 
+class TradeOverlayTests(unittest.TestCase):
+    setUpClass = classmethod(OverlayStateTests.setUpClass.__func__)
+    tearDownClass = classmethod(OverlayStateTests.tearDownClass.__func__)
+
+    def test_trade_pill_has_its_own_four_steps(self):
+        title, steps = self.mod.OVERLAY_SPECS["trade"]
+        self.assertEqual((title, len(steps)), ("TRADE", 4))
+
+    def test_a_failed_listing_sync_leaves_the_first_three_lit(self):
+        overlay = self.mod.StepOverlay(*self.mod.OVERLAY_SPECS["trade"])
+        self.addCleanup(overlay.deleteLater)
+        overlay.set_state(2, "done")
+        overlay.set_state(3, "failed", "Listing sync failed")
+        self.assertEqual(overlay.states, ["done", "done", "done", "failed"])
+
+    def test_reset_on_a_fresh_pill_does_nothing(self):
+        overlay = self.mod.StepOverlay(*self.mod.OVERLAY_SPECS["trade"])
+        self.addCleanup(overlay.deleteLater)
+        overlay.reset()
+        self.assertEqual(overlay.states, ["pending"] * 4)
+
+
 class OverlaySettingsTests(unittest.TestCase):
     def test_valid_values_are_kept_and_bad_ones_dropped(self):
         from settings_validation import sanitize_settings

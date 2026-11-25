@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 class DashboardInteractionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.directory = tempfile.TemporaryDirectory(prefix="sidro-layout-test-")
+        cls.directory = tempfile.TemporaryDirectory(prefix="parallel-layout-test-")
         cls.environment = patch.dict(os.environ, {"TTB_DATA_DIR": cls.directory.name, "QT_QPA_PLATFORM": "offscreen"})
         cls.environment.start()
         import qt_ui

@@ -1052,13 +1052,34 @@ class App:
             )
             self._trade_live_scan_thread.start()
             self.ui.toast("Live trade scanning enabled.", "info", 3000)
+            try:
+                self._trade_overlay_open = False
+                self.ui.overlay_reset("trade")
+                self.ui.overlay_active("trade", True)
+            except Exception:
+                pass
             return
 
+        try:
+            self.ui.overlay_active("trade", False)
+        except Exception:
+            pass
         self._trade_live_scan_stop.set()
         self._last_live_trade_signature = None
         self._last_live_completed_trade_signature = None
         self._live_trade_empty_hits = 0
         self.ui.toast("Live trade scanning disabled.", "info", 3000)
+
+    def _mark_trade_window_open(self):
+        """First poll of a new trade: clear the last trade's dots and light the first."""
+        if getattr(self, "_trade_overlay_open", False):
+            return
+        self._trade_overlay_open = True
+        try:
+            self.ui.overlay_reset("trade")
+            self.ui.overlay_step("trade", 0, "done", "Trade window open")
+        except Exception:
+            pass
 
     def _trade_live_scan_loop(self):
         print("[Trade] Live scanner started.")
@@ -1076,9 +1097,11 @@ class App:
                 if self._ocr_reset_pending.is_set():
                     break
                 if not result.name_verified:
+                    self._trade_overlay_open = False
                     if self._last_live_completed_trade_signature is None:
                         self._last_live_trade_signature = None
                 elif not result.offered_items:
+                    self._mark_trade_window_open()
                     if self._last_live_completed_trade_signature is not None:
                         self._live_trade_empty_hits += 1
                         if self._live_trade_empty_hits >= 2:
@@ -1095,11 +1118,16 @@ class App:
                     if signature != self._last_live_completed_trade_signature:
                         self._last_live_completed_trade_signature = None
                     self._live_trade_empty_hits = 0
+                    self._mark_trade_window_open()
                     new_offer = signature != self._last_live_trade_signature
                     if new_offer:
                         self._last_live_trade_signature = signature
                         offered = ", ".join(item.display_name for item in result.offered_items)
                         print(f"[Trade] Live scan detected offered item(s): {offered}")
+                        try:
+                            self.ui.overlay_step("trade", 1, "done", f"Found: {offered}")
+                        except Exception:
+                            pass
                         self.ui.toast(f"Trade detected: {offered}", "success", 6000)
 
                     if new_offer:
@@ -1113,8 +1141,20 @@ class App:
                             print("[Trade] Live scan confirmed a successful trade.")
                             print("[Trade] Syncing WFM listings for the completed trade.")
                             try:
+                                self.ui.overlay_step("trade", 2, "done", "Trade completed")
+                            except Exception:
+                                pass
+                            try:
                                 self._decrement_listings_after_trade(completed_trade.offered_items)
+                                try:
+                                    self.ui.overlay_step("trade", 3, "done", "Sale logged, listing updated")
+                                except Exception:
+                                    pass
                             except Exception as e:
+                                try:
+                                    self.ui.overlay_step("trade", 3, "failed", "Listing sync failed")
+                                except Exception:
+                                    pass
                                 print(f"[Trade] WFM listing sync failed after confirmed trade: {e}")
                                 self.ui.alert(
                                     f"Trade succeeded, but WFM listing sync failed: {e}",
@@ -1129,6 +1169,10 @@ class App:
                             self._last_live_completed_trade_signature = signature
                         else:
                             print("[Trade] Live scan ended without a confirmed successful trade.")
+                            try:
+                                self.ui.overlay_step("trade", 2, "failed", "No completed trade seen")
+                            except Exception:
+                                pass
             except Exception as e:
                 print(f"[Trade] Live scan skipped: {e}")
             finally:
@@ -1896,10 +1940,19 @@ class App:
                                     pass
                                 self._queue_reward_pick(pending)
                             elif selection_unconfirmed:
+                                failure_no = 0
                                 try:
-                                    self.ui.overlay_step(
-                                        "fissure", 1, "failed", "Pick not confirmed; nothing queued",
-                                    )
+                                    history = getattr(self, "_reward_history", None)
+                                    if history is not None and getattr(self, "_reward_history_id", None):
+                                        failure_no = history.mark_failed(self._reward_history_id)
+                                except Exception as e:
+                                    print(f"[Reward] Failure not saved: {e}")
+                                note = (
+                                    f"Failure {failure_no} saved: Trading Tools, Rewards tab"
+                                    if failure_no else "Pick not confirmed; nothing queued"
+                                )
+                                try:
+                                    self.ui.overlay_step("fissure", 1, "failed", note)
                                 except Exception:
                                     pass
                                 print("[Reward] Final selection was unconfirmed; no reward queued.")
@@ -2884,7 +2937,6 @@ class App:
             self.ui,
             lambda: self._ocr_use_is_active() or bool(getattr(self.ui.dashboard, '_background_busy', False)),
         )
-        self.ui.start_support_reminders(self._ocr_use_is_active)
         self.ui.run()
 
     def _warm_ocr_engine(self):

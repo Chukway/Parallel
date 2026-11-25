@@ -1,7 +1,7 @@
 ; Inno Setup script for the Parallel installer. Build with:  ISCC.exe tools\Parallel.iss
 ; Needs dist\Parallel (run build_parallel.ps1 first). Output: dist\installer\Parallel-Setup.exe
 #define AppName "Parallel"
-#define AppVersion "1.2.4"
+#define AppVersion "1.2.5"
 #define AppPublisher "Chukway"
 
 [Setup]
@@ -38,6 +38,8 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\Parallel.exe"; Tasks: desktop
 
 [Run]
 Filename: "{app}\Parallel.exe"; Description: "Start {#AppName}"; Flags: nowait postinstall skipifsilent
+; A quiet update (started from inside Parallel) has no finish page, so start the new copy here.
+Filename: "{app}\Parallel.exe"; Flags: nowait runasoriginaluser; Check: WizardSilent
 
 ; Uninstalling removes the program only. Items, listings and settings live in
 ; %LOCALAPPDATA%\Parallel and are kept on purpose.
