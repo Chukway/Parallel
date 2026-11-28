@@ -6888,6 +6888,18 @@ class UIController:
             self.dashboard.activateWindow()
         self.invoke(_show)
 
+    def bring_to_front(self):
+        """Show the existing window, even from the tray (used when Parallel is opened again)."""
+        def _show():
+            dashboard = self.dashboard
+            if dashboard is None:
+                return
+            QApplication.instance().setQuitOnLastWindowClosed(True)
+            dashboard.showMaximized()
+            dashboard.raise_()
+            dashboard.activateWindow()
+        self.invoke(_show)
+
     def refresh_dashboard_profile(self):
         """Reload the visible listing profile after an external profile mutation."""
         def _refresh():

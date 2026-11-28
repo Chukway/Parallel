@@ -229,6 +229,7 @@
 !/set_catalog.py
 !/settings_validation.py
 !/setup_environment.ps1
+!/single_instance.py
 !/tests/README.md
 !/tests/test_arcane_catalog.py
 !/tests/test_arcane_scan.py
@@ -260,6 +261,7 @@
 !/tests/test_sell_selected.py
 !/tests/test_set_catalog.py
 !/tests/test_set_trades.py
+!/tests/test_single_instance.py
 !/tests/test_token_capture.py
 !/tests/test_token_dialog_hook.py
 !/tests/test_trackers.py

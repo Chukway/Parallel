@@ -3345,7 +3345,15 @@ if __name__ == "__main__":
             result["error"] = traceback.format_exc()
         (config.USER_DATA_DIR / "ocr_check.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
         sys.exit(0 if result["ok"] else 1)
+    # Only one copy per data folder (helper processes and --check-ocr exit above).
+    from single_instance import SingleInstance, show_already_running_message
+    instance = SingleInstance(config.USER_DATA_DIR)
+    if not instance.is_first:
+        if not instance.ask_first_to_show():
+            show_already_running_message(config.APP_NAME)
+        sys.exit(0)
     app = App()
+    instance.listen(app.ui.bring_to_front)
     try:
         app.run()
     except KeyboardInterrupt:
