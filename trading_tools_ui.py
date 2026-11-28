@@ -17,10 +17,11 @@ from PySide6.QtCore import QDateTime, QStringListModel, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QCompleter, QDateTimeEdit, QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
-    QMessageBox, QScrollArea, QSpinBox, QTableWidget, QTabWidget, QVBoxLayout, QWidget,
+    QMessageBox, QScrollArea, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 
 import config
+import ducat_helper
 import trade_tools
 from qt_ui import (
     C_BG3, C_BLUE, C_GREEN, C_MUTED, C_RED, C_TEXT,
@@ -771,14 +772,278 @@ class SalesTab(QWidget):
         self._notify(f"Exported {count} sale(s).", "success", 4000)
 
 
+# ── ducat helper ────────────────────────────────────────────────────
+
+class DucatHelperDialog(QDialog):
+    """Which Item List parts to trade for ducats, with removal from the list or listings."""
+
+    loaded = Signal(object, str)
+    progressed = Signal(int, int)
+    listings_done = Signal(object, str)
+
+    COLUMNS = ["Use", "Item", "Own", "Listed", "How many", "Ducats each", "Lowest plat", "Recommendation"]
+    LABELS = {ducat_helper.DUCATS: "Ducats", ducat_helper.SELL: "Sell for plat",
+              ducat_helper.KEEP: "Keep", ducat_helper.CHECK: "Check"}
+
+    def __init__(self, parent, store, get_api, notify, catalog=None, start: bool = True):
+        super().__init__(parent)
+        self.setWindowTitle("Ducat helper")
+        self.store, self.get_api, self._notify = store, get_api, notify
+        self.catalog = catalog
+        self.rows: list = []
+        self._spins: list[QSpinBox] = []
+        self._taken: set[str] = set()       # already removed from the Item List in this window
+        self._stop = threading.Event()
+        self._busy = False
+        self.loaded.connect(self._show_rows)
+        self.progressed.connect(self._show_progress)
+        self.listings_done.connect(self._finish_listings)
+        layout = QVBoxLayout(self)
+        layout.setSpacing(8)
+        self.status = _muted("Looking up prices for your Prime parts...")
+        layout.addWidget(self.status)
+        self.table = QTableWidget(0, len(self.COLUMNS))
+        self.table.setHorizontalHeaderLabels(self.COLUMNS)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        _prepare_table(self.table, [50, 270, 55, 65, 100, 105, 105, 360], stretch_column=7)
+        self.table.itemChanged.connect(lambda _item: self._update_summary())
+        layout.addWidget(self.table, 1)
+        self.summary = QLabel("")
+        layout.addWidget(self.summary)
+        self.recommended_button = _button("Tick recommended", C_BG3, C_TEXT)
+        self.recommended_button.clicked.connect(self.tick_recommended)
+        self.none_button = _button("Untick all", C_BG3, C_TEXT)
+        self.none_button.clicked.connect(self.untick_all)
+        self.list_button = _button("Remove from Item List", C_RED, "white")
+        self.list_button.clicked.connect(self.remove_from_list)
+        self.wfm_button = _button("Remove WFM listing", C_RED, "white")
+        self.wfm_button.setToolTip("Lowers your warframe.market listing by the chosen number, or deletes it")
+        self.wfm_button.clicked.connect(self.remove_listings)
+        close = _button("Close", C_BG3, C_TEXT)
+        close.clicked.connect(self.reject)
+        layout.addWidget(_bar(self.recommended_button, self.none_button, None,
+                              self.list_button, self.wfm_button, close))
+        self._set_buttons(False)
+        self.resize(1200, 700)
+        if start:
+            self.load()
+
+    # ── loading ──
+    def load(self):
+        api = self.get_api()
+        if api is None:
+            self.status.setText("Sign in first: prices and ducat values come from warframe.market.")
+            return
+        if self.catalog is None:
+            from set_catalog import SetCatalog
+            self.catalog = SetCatalog()
+
+        def price(slug: str):
+            return api.get_price_info(slug).lowest_sell_price
+
+        def work():
+            try:
+                rows = ducat_helper.build_rows(
+                    self.store, api.get_item_ducats, price, self.catalog,
+                    progress=lambda done, total: self.progressed.emit(done, total),
+                    should_stop=self._stop.is_set,
+                )
+                if not self._stop.is_set():
+                    self.loaded.emit(rows, "")
+            except Exception as e:
+                if not self._stop.is_set():
+                    self.loaded.emit([], str(e))
+
+        _run_in_thread("Ducat helper", work)
+
+    def _show_progress(self, done: int, total: int):
+        self.status.setText(f"Looking up prices... {done} of {total}")
+
+    def _show_rows(self, rows, error: str):
+        if error:
+            self.status.setText(f"Could not finish: {error}")
+            return
+        self.rows = list(rows)
+        self.table.blockSignals(True)
+        self.table.setRowCount(0)
+        self._spins = []
+        for entry in self.rows:
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            tick = QTableWidgetItem()
+            tick.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            tick.setCheckState(Qt.Checked if entry.verdict == ducat_helper.DUCATS else Qt.Unchecked)
+            self.table.setItem(row, 0, tick)
+            cells = [
+                entry.name, entry.owned, entry.listed or "—", None, entry.ducats,
+                "—" if entry.price is None else f"{entry.price}p",
+                f"{self.LABELS[entry.verdict]}: {entry.reason}",
+            ]
+            for column, value in enumerate(cells, 1):
+                if value is None:
+                    continue
+                item = _table_item(value, mono=column in (2, 3, 5, 6))
+                if column == 7:
+                    item.setToolTip(entry.reason)
+                    colour = {ducat_helper.DUCATS: C_GREEN, ducat_helper.SELL: C_RED}.get(entry.verdict)
+                    if colour:
+                        item.setForeground(QColor(colour))
+                self.table.setItem(row, column, item)
+            spin = QSpinBox()
+            spin.setRange(1, max(1, entry.owned))
+            spin.setValue(max(1, entry.use or 1))
+            spin.valueChanged.connect(lambda _v: self._update_summary())
+            self.table.setCellWidget(row, 4, spin)
+            self._spins.append(spin)
+        self.table.blockSignals(False)
+        recommended = sum(1 for r in self.rows if r.verdict == ducat_helper.DUCATS)
+        self.status.setText(
+            f"{recommended} item(s) recommended for ducats (ticked, listed first). Parts that sell above your "
+            "limit in Settings, or complete a set you own, are left unticked."
+            if self.rows else "No Prime parts with a ducat value in your Item List."
+        )
+        self._set_buttons(bool(self.rows))
+        self._update_summary()
+
+    # ── selection ──
+    def picks(self) -> list[tuple]:
+        """(row, copies) for every ticked line."""
+        return [
+            (entry, self._spins[index].value())
+            for index, entry in enumerate(self.rows)
+            if self.table.item(index, 0).checkState() == Qt.Checked
+        ]
+
+    def tick_recommended(self):
+        for index, entry in enumerate(self.rows):
+            wanted = entry.verdict == ducat_helper.DUCATS and entry.url_name not in self._taken
+            self.table.item(index, 0).setCheckState(Qt.Checked if wanted else Qt.Unchecked)
+            if wanted:
+                self._spins[index].setValue(max(1, entry.use))
+
+    def untick_all(self):
+        for index in range(len(self.rows)):
+            self.table.item(index, 0).setCheckState(Qt.Unchecked)
+
+    def _update_summary(self):
+        if len(self._spins) != len(self.rows):
+            return
+        picks = self.picks()
+        ducats = sum(entry.ducats * count for entry, count in picks)
+        plat = sum((entry.price or 0) * count for entry, count in picks)
+        copies = sum(count for _entry, count in picks)
+        self.summary.setText(
+            f"Ticked: {copies} part(s) for {ducats} ducats. Their lowest market prices add up to {plat}p."
+        )
+
+    def _set_buttons(self, enabled: bool):
+        for button in (self.recommended_button, self.none_button, self.list_button, self.wfm_button):
+            button.setEnabled(enabled and not self._busy)
+
+    def _describe(self, picks) -> str:
+        lines = [
+            f"{count} x {entry.name}" + (f"   (sells for {entry.price}p!)" if entry.verdict == ducat_helper.SELL else "")
+            + ("   (needed for a set)" if entry.verdict == ducat_helper.KEEP else "")
+            for entry, count in picks
+        ]
+        shown = lines[:25]
+        if len(lines) > len(shown):
+            risky = sum(1 for e, _c in picks[25:] if e.verdict != ducat_helper.DUCATS)
+            shown.append(f"... and {len(lines) - len(shown)} more" + (f" ({risky} not recommended)" if risky else ""))
+        return "\n".join(shown)
+
+    # ── removal ──
+    def remove_from_list(self):
+        picks = [(e, c) for e, c in self.picks() if e.url_name not in self._taken]
+        if not picks:
+            self._notify("Tick the parts first (parts already removed here are skipped).", "warning", 4000)
+            return
+        answer = QMessageBox.question(
+            self, "Remove from Item List?",
+            f"Take these out of your Item List?\n\n{self._describe(picks)}\n\n"
+            "Your warframe.market listings are not changed.",
+        )
+        if answer != QMessageBox.Yes:
+            return
+        removed = ducat_helper.remove_from_item_list(self.store, [(e.url_name, c) for e, c in picks])
+        for entry, _count in picks:
+            self._taken.add(entry.url_name)
+            index = self.rows.index(entry)
+            item = self.store.items.get(entry.url_name)
+            self.table.item(index, 2).setText(str(int(item.quantity) if item is not None else 0))
+            self.table.item(index, 7).setText("Removed from Item List")
+        self._refresh_main_window()
+        self._notify(f"Removed {removed} part(s) from your Item List.", "success", 4000)
+
+    def remove_listings(self):
+        api = self.get_api()
+        picks = self.picks()
+        if api is None or self._busy:
+            return
+        if not picks:
+            self._notify("Tick the parts first.", "warning", 3000)
+            return
+        answer = QMessageBox.question(
+            self, "Change warframe.market listings?",
+            f"Lower your sell listings by these amounts? A listing that reaches 0 is deleted.\n\n"
+            f"{self._describe(picks)}\n\nParts you have not listed are skipped.",
+        )
+        if answer != QMessageBox.Yes:
+            return
+        self._busy = True
+        self._set_buttons(False)
+        self.status.setText("Updating warframe.market listings...")
+        chosen = [(entry.url_name, count) for entry, count in picks]
+
+        def work():
+            try:
+                self.listings_done.emit(ducat_helper.remove_from_listings(api, self.store, chosen), "")
+            except Exception as e:
+                self.listings_done.emit(None, str(e))
+
+        _run_in_thread("Ducat listing removal", work)
+
+    def _finish_listings(self, result, error: str):
+        self._busy = False
+        self._set_buttons(bool(self.rows))
+        if result is None:
+            self.status.setText(f"Listings were not changed: {error}")
+            self._notify(f"Listings were not changed: {error}", "error", 6000)
+            return
+        text = (f"Listings: {len(result['lowered'])} lowered, {len(result['deleted'])} deleted, "
+                f"{len(result['not_listed'])} not listed, {len(result['failed'])} failed.")
+        listings = getattr(self.store, "listings", {})
+        for index, entry in enumerate(self.rows):
+            listing = listings.get(entry.url_name)
+            if entry.url_name in result["lowered"] or entry.url_name in result["deleted"]:
+                self.table.item(index, 3).setText(str(int(listing.quantity)) if listing is not None else "—")
+                self.table.item(index, 0).setCheckState(Qt.Unchecked)   # never lower the same listing twice
+        self.status.setText(text)
+        self._refresh_main_window()
+        self._notify(text, "warning" if result["failed"] else "success", 6000)
+
+    def _refresh_main_window(self):
+        window = self.parent().window() if self.parent() is not None else None
+        refresh = getattr(window, "refresh_rows", None)
+        if callable(refresh):
+            refresh()
+
+    def done(self, result: int):
+        if self._busy:
+            return          # a listing change is in flight; closing now would lose its report
+        self._stop.set()
+        super().done(result)
+
+
 # ── Baro Ki'Teer ────────────────────────────────────────────────────
 
 class BaroTab(QWidget):
     loaded = Signal(object, str)
 
-    def __init__(self, get_api, notify):
+    def __init__(self, get_api, notify, store=None):
         super().__init__()
         self.get_api, self._notify = get_api, notify
+        self.store = store
         self._busy = False
         self._loaded_once = False
         self.loaded.connect(self._finish)
@@ -788,7 +1053,11 @@ class BaroTab(QWidget):
         self.status = _muted("Open this tab to load Baro Ki'Teer's stock.")
         refresh = _button("Refresh", C_BLUE, "white")
         refresh.clicked.connect(self.refresh)
-        layout.addWidget(_bar(self.status, refresh, stretch_first=True))
+        self.ducat_button = _button("Pick items for ducats", C_GREEN, "white")
+        self.ducat_button.setToolTip("Checks your Item List and recommends which parts to trade for ducats")
+        self.ducat_button.clicked.connect(self.open_ducat_helper)
+        self.ducat_button.setVisible(store is not None)
+        layout.addWidget(_bar(self.status, self.ducat_button, refresh, stretch_first=True))
         self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(["Item", "Ducats", "Credits", "Market price", "Plat per 100 ducats"])
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -798,6 +1067,12 @@ class BaroTab(QWidget):
             "Market price is the lowest in-game sell price. The last column ranks which "
             "purchases turn the most ducats into platinum. Items that cannot be traded show a dash."
         )))
+
+    def open_ducat_helper(self):
+        if self.get_api() is None:
+            self._notify("Sign in first: prices and ducat values come from warframe.market.", "warning", 4000)
+            return
+        DucatHelperDialog(self, self.store, self.get_api, self._notify).exec()
 
     def on_shown(self):
         if self._loaded_once:
@@ -1249,7 +1524,7 @@ class TradingToolsPage(QWidget):
         self.watchlist = WatchlistTab(get_api, notify)
         self.reprice = RepriceTab(get_api, notify)
         self.sales = SalesTab(store, notify)
-        self.baro = BaroTab(get_api, notify)
+        self.baro = BaroTab(get_api, notify, store)
         self.rewards = RewardHistoryTab(store, notify)
         self.tabs.addTab(self.watchlist, "Watchlist")
         self.tabs.addTab(self.reprice, "Repricing")

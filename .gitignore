@@ -94,6 +94,7 @@
 !/docs/images/sales.png
 !/docs/images/set-vs-parts.png
 !/docs/images/watchlist.png
+!/ducat_helper.py
 !/ducats_cache.json
 !/evaluate_inventory_scan.py
 !/expected_inventory_6x3.example.json
@@ -235,6 +236,7 @@
 !/tests/test_arcane_scan.py
 !/tests/test_backup_manager.py
 !/tests/test_dependency_baseline.py
+!/tests/test_ducat_helper.py
 !/tests/test_edit_item.py
 !/tests/test_inventory_badge_crop.py
 !/tests/test_inventory_grid_alignment.py

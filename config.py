@@ -16,7 +16,7 @@ from settings_validation import MAX_SETTINGS_BYTES, sanitize_settings
 
 APP_NAME = "Parallel"
 APP_SLUG = "Parallel"
-APP_VERSION = "1.2.7"
+APP_VERSION = "1.2.8"
 # Releases come from update_core.REPOSITORY. Set to False to turn update checks off.
 UPDATE_SOURCE_ENABLED = True
 IS_FROZEN = bool(getattr(sys, "frozen", False))
